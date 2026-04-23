@@ -1,0 +1,31 @@
+/* Two-column layout: viewport fills available space, sidebar is fixed width */
+
+.appRoot {
+  width: 100vw;
+  height: 100dvh;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  background: #0f0f1a;
+}
+
+.viewportArea {
+  flex: 1 1 0;
+  position: relative;
+  /*
+    min-width: 0 is critical for flex children.
+    Without it, a flex item's min-size defaults to `auto` (its content size),
+    which would prevent the viewport from shrinking to make room for the sidebar.
+  */
+  min-width: 0;
+}
+
+.sidebar {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: #16162a;
+  border-left: 1px solid #2a2a4a;
+}

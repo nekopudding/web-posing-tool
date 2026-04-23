@@ -1,0 +1,28 @@
+/* Global reset — keep minimal, component styles live in CSS modules */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  color: #ccc;
+  background: #0f0f1a;
+}
+
+/* Normalize button/input appearance for panel controls */
+button {
+  cursor: pointer;
+}
+
+input[type="range"] {
+  cursor: ew-resize;
+}

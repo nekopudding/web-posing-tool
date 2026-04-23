@@ -1,0 +1,53 @@
+/* Character roster card list */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: #1e1e3a;
+  border: 1px solid #2a2a4a;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.card:hover {
+  background: #252550;
+}
+
+.cardActive {
+  background: #2a2060;
+  border-color: #7766dd;
+}
+
+.cardName {
+  flex: 1;
+  font-size: 12px;
+  color: #ccc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btnDelete {
+  padding: 2px 6px;
+  background: transparent;
+  color: #888;
+  border: none;
+  border-radius: 3px;
+  font-size: 14px;
+  line-height: 1;
+  transition: color 0.1s;
+}
+
+.btnDelete:hover {
+  color: #ff6666;
+}

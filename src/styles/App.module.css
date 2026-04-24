@@ -6,7 +6,7 @@
   display: flex;
   flex-direction: row;
   overflow: hidden;
-  background: #0f0f1a;
+  background: var(--bg);
 }
 
 .viewportArea {
@@ -26,6 +26,6 @@
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  background: #16162a;
-  border-left: 1px solid #2a2a4a;
+  background: var(--sidebar-bg);
+  border-left: 1px solid var(--border);
 }

@@ -11,43 +11,64 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
-  background: #1e1e3a;
-  border: 1px solid #2a2a4a;
-  border-radius: 4px;
+  padding: 6px 8px 6px 6px; /* 6px left to account for 3px border */
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  border-left: 3px solid transparent; /* reserve space, invisible by default */
+  border-radius: 3px;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: border-left-color 0.12s, background 0.12s;
 }
 
 .card:hover {
-  background: #252550;
+  border-left-color: var(--accent-dim);
+  background: var(--accent-glow);
 }
 
 .cardActive {
-  background: #2a2060;
-  border-color: #7766dd;
+  border-left-color: var(--accent);
+  background: var(--accent-glow);
 }
 
 .cardName {
   flex: 1;
   font-size: 12px;
-  color: #ccc;
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* Reset pose button — teal on hover */
+.btnReset {
+  padding: 2px 6px;
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  border-radius: 2px;
+  font-size: 13px;
+  line-height: 1;
+  font-family: inherit;
+  transition: color 0.1s;
+}
+
+.btnReset:hover {
+  color: var(--accent);
+}
+
+/* Delete button — amber on hover (destructive action) */
 .btnDelete {
   padding: 2px 6px;
   background: transparent;
-  color: #888;
+  color: var(--text-dim);
   border: none;
-  border-radius: 3px;
+  border-radius: 2px;
   font-size: 14px;
   line-height: 1;
+  font-family: inherit;
   transition: color 0.1s;
 }
 
 .btnDelete:hover {
-  color: #ff6666;
+  color: var(--amber);
 }

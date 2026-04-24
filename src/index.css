@@ -11,16 +11,38 @@ html, body, #root {
   overflow: hidden;
 }
 
+/* ── Design tokens ── */
+:root {
+  --accent:       #1de9c7;                  /* teal — interactive elements only */
+  --accent-dim:   #13a88f;                  /* teal darkened — active/pressed states */
+  --accent-glow:  rgba(29, 233, 199, 0.08); /* teal tint for bg fills */
+  --blue:         #4e7eff;                  /* electric blue — secondary hover states */
+  --amber:        #f59e0b;                  /* amber — destructive/delete actions */
+
+  --bg:              #07070f;   /* main app background */
+  --sidebar-bg:      #09091a;   /* sidebar column */
+  --panel-header-bg: #0c0c1f;   /* panel section headers */
+  --panel-body-bg:   #0a0a1c;   /* panel content areas */
+
+  --border:     #141430;   /* primary border/divider */
+  --border-mid: #1e1e40;   /* slightly lighter for internal separators */
+
+  --text-primary:   #b8cce0;   /* main body text */
+  --text-secondary: #4a5f7a;   /* muted labels, panel headers */
+  --text-dim:       #2e3f55;   /* very muted, barely visible structural hints */
+}
+
 body {
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
   font-size: 13px;
-  color: #ccc;
-  background: #0f0f1a;
+  color: var(--text-primary);
+  background: var(--bg);
 }
 
 /* Normalize button/input appearance for panel controls */
 button {
   cursor: pointer;
+  font-family: inherit; /* prevent browsers from defaulting buttons to system-ui */
 }
 
 input[type="range"] {

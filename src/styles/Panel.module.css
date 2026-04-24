@@ -1,34 +1,35 @@
 /* Shared panel styles used by all sidebar panels */
 
 .panel {
-  border-bottom: 1px solid #2a2a4a;
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
+/* ── Panel header: structural label, NOT interactive ── */
+/* No cursor:pointer. No :hover. Left border = structural accent, not affordance. */
 .panelHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 7px 12px 7px 10px; /* 10px left to account for 3px border */
+  font-family: 'Rajdhani', system-ui, sans-serif;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.15em;
   text-transform: uppercase;
-  color: #8888aa;
-  cursor: pointer;
+  color: var(--text-secondary);
   user-select: none;
-  background: #12122a;
+  background: var(--panel-header-bg);
+  border-left: 3px solid var(--accent-dim);
 }
 
-.panelHeader:hover {
-  background: #1a1a3a;
-}
-
+/* Panel content area */
 .panelContent {
   padding: 10px 12px;
+  background: var(--panel-body-bg);
 }
 
-/* Row layout for label + control */
+/* ── Row layout for label + control ── */
 .row {
   display: flex;
   align-items: center;
@@ -40,59 +41,82 @@
   margin-bottom: 0;
 }
 
+/* Label: monospace (inherited), muted */
 .label {
   font-size: 11px;
-  color: #8888aa;
+  color: var(--text-secondary);
   min-width: 52px;
   flex-shrink: 0;
 }
 
-/* Range input spanning available width */
+/* ── Range slider ── */
 .slider {
   flex: 1;
-  accent-color: #7766dd;
+  accent-color: var(--accent);
 }
 
-/* Full-width button */
+/* ── Full-width button ── */
 .btnFull {
   width: 100%;
   padding: 6px 10px;
-  background: #2a2a4a;
-  color: #ccc;
-  border: 1px solid #3a3a5a;
-  border-radius: 4px;
-  font-size: 12px;
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-mid);
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: inherit;
+  letter-spacing: 0.05em;
   margin-bottom: 6px;
-  transition: background 0.1s;
+  transition: border-color 0.12s, color 0.12s;
 }
 
 .btnFull:hover {
-  background: #3a3a5a;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btnFull:active {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .btnFull:last-child {
   margin-bottom: 0;
 }
 
-/* Small accent button (e.g. preset buttons in a row) */
+/* ── Small accent button (e.g. preset buttons in a row) ── */
 .btnSmall {
   padding: 4px 8px;
-  background: #222240;
-  color: #aaa;
-  border: 1px solid #3a3a5a;
-  border-radius: 3px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-mid);
+  border-radius: 2px;
   font-size: 11px;
-  transition: background 0.1s;
+  font-family: inherit;
+  letter-spacing: 0.04em;
+  transition: border-color 0.12s, color 0.12s;
 }
 
-.btnSmall:hover,
+.btnSmall:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+/* Active small button: teal fill with dark text (teal is bright enough) */
 .btnSmallActive {
-  background: #7766dd;
-  color: #fff;
-  border-color: #9988ee;
+  background: var(--accent-dim);
+  color: #07070f;
+  border-color: var(--accent);
 }
 
-/* Checkbox toggle row */
+.btnSmall.btnSmallActive:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #07070f;
+}
+
+/* ── Checkbox toggle row ── */
 .checkRow {
   display: flex;
   align-items: center;
@@ -106,19 +130,19 @@
 
 .checkRow label {
   font-size: 12px;
-  color: #ccc;
+  color: var(--text-primary);
   cursor: pointer;
   user-select: none;
 }
 
 .checkRow input[type='checkbox'] {
-  accent-color: #7766dd;
+  accent-color: var(--accent);
   width: 14px;
   height: 14px;
   cursor: pointer;
 }
 
-/* Color swatch row for background picker */
+/* ── Color swatch row for background picker ── */
 .swatchRow {
   display: flex;
   gap: 6px;
@@ -128,11 +152,16 @@
 .swatch {
   width: 24px;
   height: 24px;
-  border-radius: 3px;
+  border-radius: 2px;
   border: 2px solid transparent;
   cursor: pointer;
+  transition: border-color 0.12s;
+}
+
+.swatch:hover {
+  border-color: var(--blue);
 }
 
 .swatchActive {
-  border-color: #7766dd;
+  border-color: var(--accent);
 }

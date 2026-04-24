@@ -21,7 +21,7 @@ export function CharacterRoster() {
     <section className={panelStyles.panel}>
       <div className={panelStyles.panelHeader}>
         Characters
-        <span style={{ color: '#555' }}>{characters.length}/{MAX_CHARACTERS}</span>
+        <span style={{ color: 'var(--text-dim)' }}>{characters.length}/{MAX_CHARACTERS}</span>
       </div>
       <div className={panelStyles.panelContent}>
         <div className={styles.list}>
@@ -34,13 +34,12 @@ export function CharacterRoster() {
               <span className={styles.cardName}>{c.name}</span>
               {/* Reset pose button */}
               <button
-                className={styles.btnDelete}
+                className={styles.btnReset}
                 title="Reset pose to T-pose"
                 onClick={(e) => {
                   e.stopPropagation()
                   resetPose(c.id)
                 }}
-                style={{ fontSize: 11, color: '#668' }}
               >
                 ↺
               </button>

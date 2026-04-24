@@ -119,6 +119,12 @@ export interface SceneState {
   characters: Character[]
   /** ID of the currently selected character, or null if none. */
   activeCharacterId: string | null
+  /**
+   * Name of the currently selected bone within the active character, or null.
+   * Drives the yellow joint highlight and determines which gizmo to show.
+   * Cleared automatically when `selectCharacter` is called.
+   */
+  selectedBoneName: string | null
   camera: CameraState
   viewport: ViewportState
 
@@ -126,6 +132,8 @@ export interface SceneState {
   addCharacter: () => void
   removeCharacter: (id: string) => void
   selectCharacter: (id: string | null) => void
+  /** Select a specific bone within the active character. */
+  selectBone: (boneName: string | null) => void
 
   // --- Pose actions ---
   /** Called by GizmoController on pointerup to write the final solved pose. */
@@ -195,6 +203,7 @@ export const useSceneStore = create<SceneState>()(
     // Initial state — one character already in the scene
     characters: [makeCharacter(0)],
     activeCharacterId: null,
+    selectedBoneName: null,
     camera: {
       fov: DEFAULT_FOV,
       preset: 'perspective',
@@ -223,7 +232,10 @@ export const useSceneStore = create<SceneState>()(
         return { characters: filtered, activeCharacterId: newActive }
       }),
 
-    selectCharacter: (id) => set({ activeCharacterId: id }),
+    // Selecting a different character clears the per-bone selection.
+    selectCharacter: (id) => set({ activeCharacterId: id, selectedBoneName: null }),
+
+    selectBone: (boneName) => set({ selectedBoneName: boneName }),
 
     // ---- Pose actions ----
 

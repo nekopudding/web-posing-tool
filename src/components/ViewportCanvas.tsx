@@ -22,22 +22,29 @@
  * directly. React's useEffect is only used for low-frequency changes like
  * adding/removing characters, toggling the grid, or changing camera preset.
  *
- * The subscribeWithSelector middleware (applied in useSceneStore) enables
- * the `subscribe(selector, listener)` overload. Without it, subscribe only
- * accepts a bare listener and sends the full state.
+ * ============================================================================
+ * SPLIT SUBSCRIPTIONS — POSE RESET FIX
+ * ============================================================================
  *
- * Flow for a drag-based pose update:
- *   1. User drags joint sphere
- *   2. GizmoController.update() runs in the render loop → FABRIK → applyToObjects
- *      (Three.js updated directly, no store write yet)
- *   3. On pointerup: GizmoController calls onPoseChange(id, fullPose)
- *   4. onPoseChange calls store.updatePose for each changed bone
- *   5. Zustand subscription fires → CharacterManager.applyPoseState(pose)
- *   6. Next frame: render loop renders the updated rig
+ * Previously a single subscription watched `state.characters`. Any store
+ * write (updateMorph, updateLayer) creates a new characters array, which
+ * fired the subscription and called applyPoseState() — visually reverting
+ * an in-progress drag to the last committed pose.
  *
- * Note: in step 2, Three.js is already updated — step 5 would be redundant
- * for that drag. But it ensures the store stays in sync for future operations
- * (e.g. if the user adds a second character, the first one's pose is preserved).
+ * Fix: split into 4 targeted subscriptions with reference-equality guards.
+ * `updateMorph` spreads { ...char, morphWeights: ... } but leaves `char.pose`
+ * at the same object reference. So the pose subscription's equalityFn sees
+ * no change and does not fire. Pose is only re-applied when it actually changes.
+ *
+ * ============================================================================
+ * TRANSFORM GIZMO WIRING
+ * ============================================================================
+ *
+ * The transform gizmo (rotation rings + translation arrows) is owned by
+ * GizmoController. It needs to show/hide when `selectedBoneName` changes.
+ * We wire this via a Zustand subscription that reads `activeCharacterId`
+ * and `selectedBoneName` together, finds the bone node, and calls
+ * `gizmo.attach()` or `gizmo.detach()`.
  */
 
 import { useEffect, useRef } from 'react'
@@ -48,11 +55,17 @@ import { GizmoController } from '../three/GizmoController'
 import { GridOverlay } from '../three/GridOverlay'
 import { ExportHelper } from '../three/ExportHelper'
 import type { BoneName } from '../three/IKChains'
+import { IK_CHAINS } from '../three/IKChains'
 import type { PoseState } from '../store/useSceneStore'
 import styles from '../styles/ViewportCanvas.module.css'
 
 // Expose ExportHelper as a module-level singleton for use by ViewportPanel
 export const exportHelper = new ExportHelper()
+
+/** IK end effectors — these show translation arrows on the transform gizmo. */
+const IK_EFFECTOR_SET = new Set<string>(
+  IK_CHAINS.map((c) => c.bones[c.bones.length - 1])
+)
 
 export function ViewportCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -79,20 +92,18 @@ export function ViewportCanvas() {
     grid.setVisible(useSceneStore.getState().viewport.gridEnabled)
     gridRef.current = grid
 
-    // ---- Gizmo controller (drag IK) ----
+    // ---- Gizmo controller ----
     const handlePoseChange = (characterId: string, pose: PoseState) => {
-      // Write each changed bone's quaternion to the store.
-      // We write the full pose (not just changed bones) to keep the store
-      // fully in sync — the cost is O(bones) per drag-end, which is fine.
       const { updatePose } = useSceneStore.getState()
       for (const [boneName, q] of Object.entries(pose)) {
         updatePose(characterId, boneName, q)
       }
     }
 
-    const handleBoneSelect = (characterId: string, _boneName: BoneName) => {
-      // Select the character whose gizmo was clicked
-      useSceneStore.getState().selectCharacter(characterId)
+    const handleBoneSelect = (characterId: string, boneName: BoneName) => {
+      const { selectCharacter, selectBone } = useSceneStore.getState()
+      selectCharacter(characterId)
+      selectBone(boneName)
     }
 
     const gizmo = new GizmoController(canvas, scene, handlePoseChange, handleBoneSelect)
@@ -108,13 +119,14 @@ export function ViewportCanvas() {
       gizmo.registerCharacter(mgr)
     }
 
-    // ---- Zustand subscriptions ----
+    // ========================================================================
+    // Zustand subscriptions
+    // ========================================================================
 
     // 1. Character list changes (add / remove) — low frequency
     const unsubCharList = useSceneStore.subscribe(
       (state) => state.characters.map((c) => c.id),
       (newIds, prevIds) => {
-        // Diff: find added and removed IDs
         const added = newIds.filter((id) => !prevIds.includes(id))
         const removed = prevIds.filter((id) => !newIds.includes(id))
 
@@ -137,30 +149,89 @@ export function ViewportCanvas() {
       }
     )
 
-    // 2. Pose updates — high frequency (FABRIK drag writes here)
-    //    We apply pose to Three.js objects directly, bypassing React.
+    // 2a. Pose — only fires when a character's pose object reference changes.
+    //     updateMorph/updateLayer spread { ...char, morphWeights/layerVisibility: ... }
+    //     which creates a new Character object but keeps char.pose at the same reference.
+    //     The equalityFn sees the pose refs are unchanged → subscription does NOT fire.
+    //     This prevents the pose from being reset when sliders/checkboxes are adjusted.
     const unsubPose = useSceneStore.subscribe(
-      (state) => state.characters,
-      (chars) => {
-        for (const char of chars) {
-          const mgr = charManagersRef.current.get(char.id)
-          if (!mgr) continue
-          mgr.applyPoseState(char.pose)
-          mgr.applyMorphWeights(char.morphWeights)
-          mgr.setLayerVisibility(char.layerVisibility)
-          mgr.setWorldPosition(char.worldPosition)
-          mgr.setWorldRotation(char.worldRotation)
+      (s) => s.characters.map((c) => c.pose),
+      () => {
+        for (const char of useSceneStore.getState().characters) {
+          charManagersRef.current.get(char.id)?.applyPoseState(char.pose)
         }
+      },
+      {
+        equalityFn: (a: PoseState[], b: PoseState[]) =>
+          a.length === b.length && a.every((p, i) => p === b[i]),
       }
     )
 
-    // 3. Active character highlight
+    // 2b. Morph weights — fires only when morphWeights reference changes.
+    const unsubMorph = useSceneStore.subscribe(
+      (s) => s.characters.map((c) => c.morphWeights),
+      () => {
+        for (const char of useSceneStore.getState().characters) {
+          charManagersRef.current.get(char.id)?.applyMorphWeights(char.morphWeights)
+        }
+      },
+      {
+        equalityFn: (a, b) => a.length === b.length && a.every((m, i) => m === b[i]),
+      }
+    )
+
+    // 2c. Layer visibility — fires only when layerVisibility reference changes.
+    const unsubLayer = useSceneStore.subscribe(
+      (s) => s.characters.map((c) => c.layerVisibility),
+      () => {
+        for (const char of useSceneStore.getState().characters) {
+          charManagersRef.current.get(char.id)?.setLayerVisibility(char.layerVisibility)
+        }
+      },
+      {
+        equalityFn: (a, b) => a.length === b.length && a.every((l, i) => l === b[i]),
+      }
+    )
+
+    // 2d. World transforms — fires only when position/rotation reference changes.
+    const unsubTransform = useSceneStore.subscribe(
+      (s) => s.characters.map((c) => ({ wp: c.worldPosition, wr: c.worldRotation })),
+      () => {
+        for (const char of useSceneStore.getState().characters) {
+          const mgr = charManagersRef.current.get(char.id)
+          mgr?.setWorldPosition(char.worldPosition)
+          mgr?.setWorldRotation(char.worldRotation)
+        }
+      },
+      {
+        equalityFn: (a, b) =>
+          a.length === b.length && a.every((t, i) => t.wp === b[i].wp && t.wr === b[i].wr),
+      }
+    )
+
+    // 3. Active character + selected bone — drives joint highlight and gizmo visibility.
     const unsubActive = useSceneStore.subscribe(
-      (state) => state.activeCharacterId,
-      (activeId) => {
+      (s) => ({ activeId: s.activeCharacterId, bone: s.selectedBoneName }),
+      ({ activeId, bone }) => {
         for (const [id, mgr] of charManagersRef.current) {
           mgr.setActive(id === activeId)
+          mgr.setSelectedBone(id === activeId ? bone : null)
         }
+
+        // Update transform gizmo: attach to the selected bone, or detach.
+        if (activeId && bone) {
+          const mgr = charManagersRef.current.get(activeId)
+          const boneNode = mgr?.getBoneNode(bone as BoneName)
+          if (boneNode) {
+            const isIK = IK_EFFECTOR_SET.has(bone)
+            gizmo.transformGizmo.attach(boneNode, isIK)
+          }
+        } else {
+          gizmo.transformGizmo.detach()
+        }
+      },
+      {
+        equalityFn: (a, b) => a.activeId === b.activeId && a.bone === b.bone,
       }
     )
 
@@ -220,6 +291,9 @@ export function ViewportCanvas() {
     return () => {
       unsubCharList()
       unsubPose()
+      unsubMorph()
+      unsubLayer()
+      unsubTransform()
       unsubActive()
       unsubGrid()
       unsubOutline()

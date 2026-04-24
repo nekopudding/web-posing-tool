@@ -4,6 +4,7 @@ import { BodyTypePanel } from './components/panels/BodyTypePanel'
 import { LayerPanel } from './components/panels/LayerPanel'
 import { CameraPanel } from './components/panels/CameraPanel'
 import { ViewportPanel } from './components/panels/ViewportPanel'
+import { ControlsPanel } from './components/panels/ControlsPanel'
 import styles from './styles/App.module.css'
 
 /**
@@ -27,6 +28,7 @@ function App() {
         <LayerPanel />
         <CameraPanel />
         <ViewportPanel />
+        <ControlsPanel />
       </aside>
     </div>
   )

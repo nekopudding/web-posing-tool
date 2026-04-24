@@ -12,6 +12,9 @@ No backend — fully client-side.
 
 **Tech stack:** React 18 + TypeScript, Vite 5, Three.js r184, Zustand 5, CSS Modules, pnpm.
 
+## Coding Style
+- Write comments on complex function designs, ambiguous properties.
+
 ---
 
 ## Project Structure

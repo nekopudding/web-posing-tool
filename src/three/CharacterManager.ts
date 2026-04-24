@@ -105,6 +105,16 @@ const BONE_MATERIAL = new THREE.MeshStandardMaterial({
   roughness: 0.7,
   metalness: 0.0,
 })
+/**
+ * Applied to the single joint sphere that is currently selected (clicked or dragged).
+ * Bright yellow so it stands out against both the blue inactive and orange active materials.
+ */
+const SELECTED_JOINT_MATERIAL = new THREE.MeshStandardMaterial({
+  color: 0xffee44,
+  emissive: 0x886600,
+  roughness: 0.2,
+  metalness: 0.3,
+})
 
 // --------------------------------------------------------------------------
 // CharacterManager
@@ -139,6 +149,10 @@ export class CharacterManager {
   private outlineMaterials: THREE.ShaderMaterial[] = []
 
   private scene: THREE.Scene
+  /** Whether this character is the active (selected) one in the roster. */
+  private _isActive = false
+  /** The bone name of the currently selected joint sphere, or null. */
+  private _selectedBone: string | null = null
 
   constructor(characterId: string, scene: THREE.Scene) {
     this.characterId = characterId
@@ -378,11 +392,33 @@ export class CharacterManager {
   /**
    * Highlight the active character's joint spheres using the accent material.
    * Pass `true` when this character is selected, `false` otherwise.
+   * Preserves the per-bone selected highlight set by `setSelectedBone`.
    */
   setActive(active: boolean): void {
-    const mat = active ? ACTIVE_JOINT_MATERIAL : JOINT_MATERIAL
+    this._isActive = active
+    // Re-apply all materials, respecting the per-bone selection state.
+    this._refreshJointMaterials()
+  }
+
+  /**
+   * Highlight a specific joint sphere as "selected" (bright yellow).
+   * All other spheres use the character-level active/inactive material.
+   * Pass `null` to clear the selection highlight.
+   */
+  setSelectedBone(boneName: string | null): void {
+    this._selectedBone = boneName
+    this._refreshJointMaterials()
+  }
+
+  /** Internal: re-assign materials to all joint spheres based on current state. */
+  private _refreshJointMaterials(): void {
     for (const sphere of this.jointMeshes) {
-      ;(sphere as THREE.Mesh).material = mat
+      const name = sphere.userData.boneName as string
+      if (name === this._selectedBone) {
+        sphere.material = SELECTED_JOINT_MATERIAL
+      } else {
+        sphere.material = this._isActive ? ACTIVE_JOINT_MATERIAL : JOINT_MATERIAL
+      }
     }
   }
 

@@ -131,7 +131,9 @@ export class SceneManager {
       this.camera.aspect = width / height
       this.camera.updateProjectionMatrix()
     } else if (this.camera instanceof THREE.OrthographicCamera) {
-      const hw = width / height
+      // camera.top stores the world-unit half-height of the view (set in setCameraPreset).
+      // On resize we keep the vertical extent fixed and scale horizontal to match the new aspect.
+      const hw = this.camera.top * (width / height)
       this.camera.left = -hw
       this.camera.right = hw
       this.camera.updateProjectionMatrix()
@@ -170,7 +172,9 @@ export class SceneManager {
       const aspect = w / h
       const viewHeight = 3.5 // world units visible vertically
       const vw = viewHeight * aspect
-      const orthoCam = new THREE.OrthographicCamera(-vw, vw, viewHeight, 0, 0.05, 200)
+      // top = +half, bottom = -half so the view is vertically centered on the camera target.
+      // Previously bottom=0 put the camera center at the very bottom edge, cutting off the feet.
+      const orthoCam = new THREE.OrthographicCamera(-vw, vw, viewHeight / 2, -viewHeight / 2, 0.05, 200)
 
       if (preset === 'ortho-front') {
         orthoCam.position.set(0, 0.8, 10)

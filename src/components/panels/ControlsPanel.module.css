@@ -1,0 +1,36 @@
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.action {
+  color: #aabbff;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.desc {
+  color: #8899aa;
+  text-align: right;
+  font-size: 10.5px;
+}
+
+.sectionLabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #556677;
+  margin: 4px 0 6px;
+}

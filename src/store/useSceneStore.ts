@@ -113,6 +113,16 @@ export interface ViewportState {
 }
 
 // ---------------------------------------------------------------------------
+// HistorySnapshot — captures pose + world position for all characters at a point
+// in time. Used by the undo/redo stacks.
+// ---------------------------------------------------------------------------
+export interface HistorySnapshot {
+  characterId: string
+  pose: PoseState
+  worldPosition: { x: number; y: number; z: number }
+}
+
+// ---------------------------------------------------------------------------
 // Full store interface — state + actions
 // ---------------------------------------------------------------------------
 export interface SceneState {
@@ -128,6 +138,15 @@ export interface SceneState {
   camera: CameraState
   viewport: ViewportState
 
+  /**
+   * Undo/redo history. Each entry is a snapshot of all characters' poses and
+   * world positions before a user action. Capped at 50 entries each.
+   * The Three.js sync happens automatically via Zustand subscriptions in
+   * ViewportCanvas — no extra wiring needed after undo/redo.
+   */
+  undoStack: HistorySnapshot[][]
+  redoStack: HistorySnapshot[][]
+
   // --- Character actions ---
   addCharacter: () => void
   removeCharacter: (id: string) => void
@@ -138,8 +157,25 @@ export interface SceneState {
   // --- Pose actions ---
   /** Called by GizmoController on pointerup to write the final solved pose. */
   updatePose: (characterId: string, boneName: string, q: SerializedQuaternion) => void
+  /**
+   * Atomically replace an entire character's pose in one store update.
+   * Preferred over calling updatePose per-bone; does NOT push history (the
+   * caller — GizmoController._onPointerUp — calls pushHistory first).
+   */
+  setBulkPose: (characterId: string, pose: PoseState) => void
   /** Resets the active character to T-pose (all identity quaternions). */
   resetPose: (characterId: string) => void
+
+  // --- Undo / Redo ---
+  /**
+   * Snapshot the current characters state onto the undoStack and clear redoStack.
+   * Must be called BEFORE any pose-mutating action so undo restores pre-action state.
+   */
+  pushHistory: () => void
+  /** Restore the previous state from undoStack. */
+  undo: () => void
+  /** Re-apply the most recently undone state from redoStack. */
+  redo: () => void
 
   // --- Body type actions ---
   updateMorph: (characterId: string, key: keyof MorphWeights, value: number) => void
@@ -199,7 +235,7 @@ function makeCharacter(index: number): Character {
 // ---------------------------------------------------------------------------
 
 export const useSceneStore = create<SceneState>()(
-  subscribeWithSelector((set, _get) => ({
+  subscribeWithSelector((set, get) => ({
     // Initial state — one character already in the scene
     characters: [makeCharacter(0)],
     activeCharacterId: null,
@@ -213,6 +249,8 @@ export const useSceneStore = create<SceneState>()(
       outlineThickness: 0.012,
       backgroundColor: '#1a1a2e',
     },
+    undoStack: [],
+    redoStack: [],
 
     // ---- Character actions ----
 
@@ -248,12 +286,77 @@ export const useSceneStore = create<SceneState>()(
         ),
       })),
 
-    resetPose: (characterId) =>
+    setBulkPose: (characterId, pose) =>
+      set((state) => ({
+        characters: state.characters.map((c) =>
+          c.id === characterId ? { ...c, pose } : c
+        ),
+      })),
+
+    resetPose: (characterId) => {
+      // Push history before resetting so the reset is undoable.
+      get().pushHistory()
       set((state) => ({
         characters: state.characters.map((c) =>
           c.id === characterId ? { ...c, pose: makeIdentityPose() } : c
         ),
-      })),
+      }))
+    },
+
+    // ---- Undo / Redo ----
+
+    pushHistory: () =>
+      set((state) => {
+        const snapshot: HistorySnapshot[] = state.characters.map((c) => ({
+          characterId: c.id,
+          // Shallow-clone pose: values are plain {x,y,z,w} objects, no deeper clone needed.
+          pose: { ...c.pose },
+          worldPosition: { ...c.worldPosition },
+        }))
+        return {
+          undoStack: [...state.undoStack, snapshot].slice(-50),
+          redoStack: [], // any new action clears the redo stack
+        }
+      }),
+
+    undo: () =>
+      set((state) => {
+        if (state.undoStack.length === 0) return state
+        const prev = state.undoStack[state.undoStack.length - 1]
+        // Snapshot current state before restoring so redo can return here.
+        const current: HistorySnapshot[] = state.characters.map((c) => ({
+          characterId: c.id,
+          pose: { ...c.pose },
+          worldPosition: { ...c.worldPosition },
+        }))
+        return {
+          characters: state.characters.map((c) => {
+            const snap = prev.find((s) => s.characterId === c.id)
+            return snap ? { ...c, pose: snap.pose, worldPosition: snap.worldPosition } : c
+          }),
+          undoStack: state.undoStack.slice(0, -1),
+          redoStack: [current, ...state.redoStack].slice(0, 50),
+        }
+      }),
+
+    redo: () =>
+      set((state) => {
+        if (state.redoStack.length === 0) return state
+        const next = state.redoStack[0]
+        const current: HistorySnapshot[] = state.characters.map((c) => ({
+          characterId: c.id,
+          pose: { ...c.pose },
+          worldPosition: { ...c.worldPosition },
+        }))
+        return {
+          characters: state.characters.map((c) => {
+            const snap = next.find((s) => s.characterId === c.id)
+            return snap ? { ...c, pose: snap.pose, worldPosition: snap.worldPosition } : c
+          }),
+          undoStack: [...state.undoStack, current].slice(-50),
+          redoStack: state.redoStack.slice(1),
+        }
+      }),
 
     // ---- Body type actions ----
 

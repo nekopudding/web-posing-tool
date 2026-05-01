@@ -72,7 +72,7 @@ import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js
 import type { SceneManager } from './SceneManager'
 import type { CharacterManager } from './CharacterManager'
 import { IKSolver, type IKJoint } from './IKSolver'
-import { IK_CHAINS, findChainForEffector, type BoneName } from './IKChains'
+import { IK_CHAINS, RIG_CONFIG, findChainByName, type BoneName } from './IKChains'
 import { TransformGizmo, type GizmoHandleType } from './TransformGizmo'
 import { useSceneStore, type PoseState } from '../store/useSceneStore'
 
@@ -89,7 +89,9 @@ const CLICK_THRESHOLD = 5
  * of fields in DragState and a different update function.
  */
 type DragMode =
-  | 'ik-free'       // camera-plane IK drag (original behaviour)
+  | 'ik-free'       // camera-plane IK drag on end effector (hand, foot, head, chest)
+  | 'ik-inner'      // camera-plane drag on inner bone (elbow, knee); ancestors move, child orientation locked
+  | 'world-translate' // drag hips → translate character worldPosition
   | 'rotate-x' | 'rotate-y' | 'rotate-z'
   | 'translate-x' | 'translate-y' | 'translate-z'
 
@@ -108,6 +110,32 @@ interface DragState {
   /** Camera-facing plane through the joint world position. */
   dragPlane?: THREE.Plane
   currentTarget?: THREE.Vector3
+
+  // ---- IK-inner fields (mode === 'ik-inner') ----
+  // joints/boneLengths/dragPlane/currentTarget are reused from IK-free fields.
+  /** Sub-chain bone names (chain root → dragged bone, dropping the original effector). */
+  innerChainBones?: BoneName[]
+  /** The Object3D for the dragged inner bone (e.g. forearm.L or lower_leg.L). */
+  innerDraggedObj?: THREE.Object3D
+  /**
+   * World quaternion of the dragged bone captured at drag start.
+   * Restored each frame so the bone (and its children) keep their world orientation
+   * even as their parent bones rotate to move the elbow/knee to the target.
+   */
+  savedDraggedWorldQ?: THREE.Quaternion
+
+  // ---- World-translate fields (mode === 'world-translate') ----
+  /** Character's worldPosition at drag start. */
+  worldTransStartPos?: THREE.Vector3
+  /** Camera-facing plane at the hips world position. Used to map 2D drag to 3D. */
+  worldTransDragPlane?: THREE.Plane
+  /** First ray-plane intersection at drag start (delta origin). */
+  worldTransDragStart?: THREE.Vector3
+
+  // ---- Feet-lock fields (used during ik-free when footLock is true in config) ----
+  /** Saved world positions of foot.L and foot.R at drag start. */
+  savedFootPosL?: THREE.Vector3
+  savedFootPosR?: THREE.Vector3
 
   // ---- Rotation fields (mode === 'rotate-*') ----
   /** World-space unit rotation axis. */
@@ -234,6 +262,12 @@ export class GizmoController {
       case 'ik-free':
         this._updateIKFreeDrag()
         break
+      case 'ik-inner':
+        this._updateIKInnerDrag()
+        break
+      case 'world-translate':
+        this._updateWorldTranslateDrag()
+        break
       case 'rotate-x':
       case 'rotate-y':
       case 'rotate-z':
@@ -253,7 +287,9 @@ export class GizmoController {
 
   /**
    * IK-free drag: project mouse to camera-facing plane, FABRIK solve.
-   * (Original drag behaviour for hand/foot joints.)
+   * Works for all IK end effectors: hands, feet, head, chest.
+   * When the bone config has footLock=true and the chain can't converge,
+   * falls through to _solveFullBodyCascade to bend the spine and re-pin feet.
    */
   private _updateIKFreeDrag(): void {
     const ds = this.dragState!
@@ -265,15 +301,123 @@ export class GizmoController {
     if (!hit) return
 
     ds.currentTarget!.copy(this._targetPos)
-    this.solver.solve(joints, this._targetPos, boneLengths)
+    const converged = this.solver.solve(joints, this._targetPos, boneLengths)
 
-    const chain = IK_CHAINS.find(
+    // Look up chain from config (works for all effectors including head, chest)
+    const boneConfig = RIG_CONFIG.bones[ds.effectorBoneName]
+    const chainName = boneConfig?.chain
+    const chain = chainName ? findChainByName(chainName) : IK_CHAINS.find(
       (c) => c.bones[c.bones.length - 1] === ds.effectorBoneName
     )
     if (!chain) return
     const objects = charMgr.getChainObjects(chain.bones)
     if (!objects) return
     this.solver.applyToObjects(joints, objects)
+
+    // Full-body cascade: when the arm/chest chain can't reach, bend the spine
+    // and re-pin feet at their pre-drag world positions.
+    if (!converged && ds.savedFootPosL && ds.savedFootPosR) {
+      this._solveFullBodyCascade(ds, this._targetPos)
+    }
+  }
+
+  /**
+   * Inner-bone drag: FABRIK on a sub-chain (root → dragged bone), preserving
+   * the dragged bone's world orientation so its children don't change direction.
+   * Used for elbow (forearm.L/R) and knee (lower_leg.L/R) posing.
+   */
+  private _updateIKInnerDrag(): void {
+    const ds = this.dragState!
+    const { joints, boneLengths, dragPlane, charMgr, innerChainBones, innerDraggedObj, savedDraggedWorldQ } = ds
+    if (!joints || !boneLengths || !dragPlane || !innerChainBones || !innerDraggedObj || !savedDraggedWorldQ) return
+
+    this.raycaster.setFromCamera(this.ndc, this.sceneManager.camera)
+    const hit = this.raycaster.ray.intersectPlane(dragPlane, this._targetPos)
+    if (!hit) return
+
+    ds.currentTarget!.copy(this._targetPos)
+    this.solver.solve(joints, this._targetPos, boneLengths)
+
+    const objects = charMgr.getChainObjects(innerChainBones)
+    if (!objects) return
+
+    // applyToObjects writes rotations on objects[0..n-2], leaving the last
+    // object (the dragged bone) untouched by the solve — but its world
+    // quaternion has changed because its parent moved. Restore it.
+    this.solver.applyToObjects(joints, objects)
+
+    if (innerDraggedObj.parent) {
+      innerDraggedObj.parent.getWorldQuaternion(this._parentWorldQ)
+      const newLocal = this._parentWorldQ.clone().invert().multiply(savedDraggedWorldQ)
+      innerDraggedObj.quaternion.copy(newLocal)
+      innerDraggedObj.updateMatrixWorld(true)
+    }
+  }
+
+  /**
+   * World-translate drag: move the entire character in 3D space by dragging the hips sphere.
+   * Only updates the Three.js group position live; store commit happens on pointerup.
+   */
+  private _updateWorldTranslateDrag(): void {
+    const ds = this.dragState!
+    const { worldTransStartPos, worldTransDragPlane, worldTransDragStart, charMgr } = ds
+    if (!worldTransStartPos || !worldTransDragPlane || !worldTransDragStart) return
+
+    this.raycaster.setFromCamera(this.ndc, this.sceneManager.camera)
+    const hit = this.raycaster.ray.intersectPlane(worldTransDragPlane, this._hitPoint)
+    if (!hit) return
+
+    // delta from where the drag started (in world space, on the camera-facing plane)
+    this._tempVec.subVectors(this._hitPoint, worldTransDragStart)
+    const newPos = worldTransStartPos.clone().add(this._tempVec)
+    charMgr.setWorldPosition({ x: newPos.x, y: newPos.y, z: newPos.z })
+  }
+
+  /**
+   * Full-body cascading IK when the primary chain can't reach the target.
+   * Solves a longer spine+arm chain so the torso bends toward the target,
+   * then re-pins both feet by re-solving the leg chains.
+   *
+   * Extended chain map (spine prepended to existing arm/head chains):
+   *   hand.L/R → ['hips','spine','chest','shoulder.X','upper_arm.X','forearm.X','hand.X']
+   *   chest    → ['hips','spine','chest'] (already the normal chain, already applied)
+   *   head     → ['hips','spine','chest','neck','head']
+   */
+  private _solveFullBodyCascade(ds: DragState, target: THREE.Vector3): void {
+    const { charMgr, savedFootPosL, savedFootPosR, effectorBoneName } = ds
+    if (!savedFootPosL || !savedFootPosR) return
+
+    const extendedBoneMap: Partial<Record<BoneName, BoneName[]>> = {
+      'hand.L': ['hips', 'spine', 'chest', 'shoulder.L', 'upper_arm.L', 'forearm.L', 'hand.L'],
+      'hand.R': ['hips', 'spine', 'chest', 'shoulder.R', 'upper_arm.R', 'forearm.R', 'hand.R'],
+      'head':   ['hips', 'spine', 'chest', 'neck', 'head'],
+      // chest already handled by its own spine_chain solve — skip
+    }
+
+    const extBones = extendedBoneMap[effectorBoneName]
+    if (!extBones) return
+
+    const extObjects = charMgr.getChainObjects(extBones)
+    if (!extObjects) return
+
+    // Re-extract world positions AFTER the primary arm solve (bones already moved).
+    const extJoints = this.solver.extractJoints(extObjects, extBones)
+    const extLengths = this.solver.computeBoneLengths(extObjects)
+    this.solver.solve(extJoints, target, extLengths)
+    this.solver.applyToObjects(extJoints, extObjects)
+
+    // Re-pin feet: hips moved, so upper_leg world positions changed.
+    // Re-extract leg chain from current object world positions and solve toward saved foot.
+    for (const side of ['L', 'R'] as const) {
+      const savedFootPos = side === 'L' ? savedFootPosL : savedFootPosR
+      const legBones: BoneName[] = [`upper_leg.${side}`, `lower_leg.${side}`, `foot.${side}`]
+      const legObjects = charMgr.getChainObjects(legBones)
+      if (!legObjects) continue
+      const legJoints = this.solver.extractJoints(legObjects, legBones)
+      const legLengths = this.solver.computeBoneLengths(legObjects)
+      this.solver.solve(legJoints, savedFootPos, legLengths)
+      this.solver.applyToObjects(legJoints, legObjects)
+    }
   }
 
   /**
@@ -410,37 +554,159 @@ export class GizmoController {
     // visual feedback should appear right on press, not only on release.
     this.onBoneSelect(characterId, boneName)
 
-    this.controls.enabled = false
-    this.canvas.setPointerCapture(e.pointerId)
-
-    const chainDef = findChainForEffector(boneName)
-    if (chainDef) {
-      // ---- IK-free drag ----
-      const objects = charMgr.getChainObjects(chainDef.bones)
-      if (!objects) { this.controls.enabled = true; return }
-
-      const joints = this.solver.extractJoints(objects, chainDef.bones)
-      const boneLengths = this.solver.computeBoneLengths(objects)
-      hitObj.getWorldPosition(this._worldPos)
-
-      this.dragState = {
-        mode: 'ik-free',
-        characterId,
-        effectorBoneName: boneName,
-        charMgr,
-        pointerId: e.pointerId,
-        startScreenPos: new THREE.Vector2(e.clientX, e.clientY),
-        joints,
-        boneLengths,
-        dragPlane: this._buildCameraPlane(this._worldPos),
-        currentTarget: this._worldPos.clone(),
-      }
-    } else {
-      // ---- Sphere drag on non-IK joint: just leave as click (no drag pose) ----
-      // The bone select was already called above. Release pointer capture since
-      // we won't be doing a drag.
+    // Look up what this bone can do from the rig config.
+    const boneConfig = RIG_CONFIG.bones[boneName]
+    if (!boneConfig?.sphereDrag) {
+      // No sphere drag defined → click only. Release capture since no drag will follow.
       this.controls.enabled = true
       this.canvas.releasePointerCapture(e.pointerId)
+      return
+    }
+
+    this.controls.enabled = false
+
+    switch (boneConfig.sphereDrag) {
+      case 'ik':
+        this._startIKFreeDrag(e, boneName, charMgr, characterId, hitObj, boneConfig.footLock ?? false)
+        break
+      case 'ik-inner':
+        this._startIKInnerDrag(e, boneName, charMgr, characterId, hitObj, boneConfig.chain!)
+        break
+      case 'translate':
+        this._startWorldTranslateDrag(e, boneName, charMgr, characterId)
+        break
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Drag start helpers (called from _onPointerDown)
+  // --------------------------------------------------------------------------
+
+  /** Start an IK-free drag for an end effector (hand, foot, head, chest). */
+  private _startIKFreeDrag(
+    e: PointerEvent,
+    boneName: BoneName,
+    charMgr: CharacterManager,
+    characterId: string,
+    hitObj: THREE.Object3D,
+    footLock: boolean,
+  ): void {
+    const boneConfig = RIG_CONFIG.bones[boneName]
+    const chain = boneConfig?.chain ? findChainByName(boneConfig.chain) : IK_CHAINS.find(
+      (c) => c.bones[c.bones.length - 1] === boneName
+    )
+    if (!chain) { this.controls.enabled = true; this.canvas.releasePointerCapture(e.pointerId); return }
+
+    const objects = charMgr.getChainObjects(chain.bones)
+    if (!objects) { this.controls.enabled = true; this.canvas.releasePointerCapture(e.pointerId); return }
+
+    const joints = this.solver.extractJoints(objects, chain.bones)
+    const boneLengths = this.solver.computeBoneLengths(objects)
+    hitObj.getWorldPosition(this._worldPos)
+
+    // Snapshot foot positions for cascading IK foot-lock if configured.
+    let savedFootPosL: THREE.Vector3 | undefined
+    let savedFootPosR: THREE.Vector3 | undefined
+    if (footLock) {
+      const footL = charMgr.getBoneNode('foot.L')
+      const footR = charMgr.getBoneNode('foot.R')
+      if (footL) savedFootPosL = footL.getWorldPosition(new THREE.Vector3())
+      if (footR) savedFootPosR = footR.getWorldPosition(new THREE.Vector3())
+    }
+
+    this.dragState = {
+      mode: 'ik-free',
+      characterId,
+      effectorBoneName: boneName,
+      charMgr,
+      pointerId: e.pointerId,
+      startScreenPos: new THREE.Vector2(e.clientX, e.clientY),
+      joints,
+      boneLengths,
+      dragPlane: this._buildCameraPlane(this._worldPos),
+      currentTarget: this._worldPos.clone(),
+      savedFootPosL,
+      savedFootPosR,
+    }
+  }
+
+  /** Start an IK-inner drag for an inner bone (elbow, knee). */
+  private _startIKInnerDrag(
+    e: PointerEvent,
+    boneName: BoneName,
+    charMgr: CharacterManager,
+    characterId: string,
+    hitObj: THREE.Object3D,
+    chainName: string,
+  ): void {
+    const chain = findChainByName(chainName)
+    if (!chain) { this.controls.enabled = true; this.canvas.releasePointerCapture(e.pointerId); return }
+
+    // Sub-chain = everything up to and including this bone (drop the final effector).
+    // e.g. for forearm.L in arm.L: sub = [shoulder.L, upper_arm.L, forearm.L]
+    const boneIdx = chain.bones.indexOf(boneName)
+    if (boneIdx < 1) { this.controls.enabled = true; this.canvas.releasePointerCapture(e.pointerId); return }
+    const subChainBones = chain.bones.slice(0, boneIdx + 1) as BoneName[]
+
+    const objects = charMgr.getChainObjects(subChainBones)
+    if (!objects) { this.controls.enabled = true; this.canvas.releasePointerCapture(e.pointerId); return }
+
+    const joints = this.solver.extractJoints(objects, subChainBones)
+    const boneLengths = this.solver.computeBoneLengths(objects)
+    hitObj.getWorldPosition(this._worldPos)
+
+    // Snapshot the dragged bone's world quaternion so we can restore it each frame.
+    const draggedObj = objects[objects.length - 1]
+    const savedDraggedWorldQ = draggedObj.getWorldQuaternion(new THREE.Quaternion())
+
+    this.dragState = {
+      mode: 'ik-inner',
+      characterId,
+      effectorBoneName: boneName,
+      charMgr,
+      pointerId: e.pointerId,
+      startScreenPos: new THREE.Vector2(e.clientX, e.clientY),
+      joints,
+      boneLengths,
+      dragPlane: this._buildCameraPlane(this._worldPos),
+      currentTarget: this._worldPos.clone(),
+      innerChainBones: subChainBones,
+      innerDraggedObj: draggedObj,
+      savedDraggedWorldQ,
+    }
+  }
+
+  /** Start a world-translate drag for the hips bone. */
+  private _startWorldTranslateDrag(
+    e: PointerEvent,
+    boneName: BoneName,
+    charMgr: CharacterManager,
+    characterId: string,
+  ): void {
+    const boneNode = charMgr.getBoneNode(boneName)
+    if (!boneNode) { this.controls.enabled = true; this.canvas.releasePointerCapture(e.pointerId); return }
+
+    boneNode.getWorldPosition(this._worldPos)
+    const dragPlane = this._buildCameraPlane(this._worldPos)
+
+    // Capture where the ray first hits the drag plane (delta origin).
+    this.raycaster.setFromCamera(this.ndc, this.sceneManager.camera)
+    const dragStart = new THREE.Vector3()
+    this.raycaster.ray.intersectPlane(dragPlane, dragStart)
+
+    const char = useSceneStore.getState().characters.find((c) => c.id === characterId)
+    const wp = char?.worldPosition ?? { x: 0, y: 0, z: 0 }
+
+    this.dragState = {
+      mode: 'world-translate',
+      characterId,
+      effectorBoneName: boneName,
+      charMgr,
+      pointerId: e.pointerId,
+      startScreenPos: new THREE.Vector2(e.clientX, e.clientY),
+      worldTransStartPos: new THREE.Vector3(wp.x, wp.y, wp.z),
+      worldTransDragPlane: dragPlane,
+      worldTransDragStart: dragStart,
     }
   }
 
@@ -510,7 +776,9 @@ export class GizmoController {
       }
     } else {
       // ---- Start translation drag ----
-      const chainDef = findChainForEffector(selectedBoneName as BoneName)
+      // Look up the chain via config (works for all IK effectors including head/chest).
+      const cfg = RIG_CONFIG.bones[selectedBoneName]
+      const chainDef = cfg?.chain ? findChainByName(cfg.chain) : undefined
       if (!chainDef) { this.controls.enabled = true; return }
 
       const objects = charMgr.getChainObjects(chainDef.bones)
@@ -555,13 +823,25 @@ export class GizmoController {
     if (!this.dragState) return
     if (e.pointerId !== this.dragState.pointerId) return
 
-    const { startScreenPos, characterId, charMgr } = this.dragState
+    const { startScreenPos, characterId, charMgr, mode } = this.dragState
     const moved = new THREE.Vector2(e.clientX, e.clientY).distanceTo(startScreenPos)
 
     if (moved >= CLICK_THRESHOLD) {
-      // Real drag — write final pose to store
-      const finalPose = charMgr.extractPoseState()
-      this.onPoseChange(characterId, finalPose)
+      // Push history BEFORE committing. At this point the Zustand store still holds
+      // the pre-drag pose — GizmoController only mutates Three.js during drag.
+      useSceneStore.getState().pushHistory()
+
+      if (mode === 'world-translate') {
+        // Commit the live-updated group position to the store.
+        const pos = charMgr.group.position
+        useSceneStore.getState().setWorldPosition(characterId, {
+          x: pos.x, y: pos.y, z: pos.z,
+        })
+      } else {
+        // Pose drag (ik-free, ik-inner, rotate-*, translate-*) — write final pose.
+        const finalPose = charMgr.extractPoseState()
+        this.onPoseChange(characterId, finalPose)
+      }
     }
     // If it was a click (moved < threshold): onBoneSelect was already called on pointerdown.
 

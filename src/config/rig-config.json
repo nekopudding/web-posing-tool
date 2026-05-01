@@ -1,0 +1,34 @@
+{
+  "version": "1",
+  "ikChains": [
+    { "name": "arm.L",       "bones": ["shoulder.L", "upper_arm.L", "forearm.L", "hand.L"] },
+    { "name": "arm.R",       "bones": ["shoulder.R", "upper_arm.R", "forearm.R", "hand.R"] },
+    { "name": "leg.L",       "bones": ["upper_leg.L", "lower_leg.L", "foot.L"] },
+    { "name": "leg.R",       "bones": ["upper_leg.R", "lower_leg.R", "foot.R"] },
+    { "name": "neck_head",   "bones": ["neck", "head"] },
+    { "name": "spine_chain", "bones": ["hips", "spine", "chest"] }
+  ],
+  "bones": {
+    "hips":        { "sphereDrag": "translate",                                  "gizmoRotate": true,  "gizmoTranslate": false },
+    "spine":       {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
+    "chest":       { "sphereDrag": "ik",       "chain": "spine_chain", "footLock": true,  "gizmoRotate": true,  "gizmoTranslate": true  },
+    "neck":        {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
+    "head":        { "sphereDrag": "ik",       "chain": "neck_head",   "footLock": false, "gizmoRotate": false, "gizmoTranslate": true  },
+    "shoulder.L":  {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
+    "shoulder.R":  {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
+    "upper_arm.L": {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
+    "upper_arm.R": {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
+    "forearm.L":   { "sphereDrag": "ik-inner", "chain": "arm.L",       "footLock": false, "gizmoRotate": true,  "gizmoTranslate": false },
+    "forearm.R":   { "sphereDrag": "ik-inner", "chain": "arm.R",       "footLock": false, "gizmoRotate": true,  "gizmoTranslate": false },
+    "hand.L":      { "sphereDrag": "ik",       "chain": "arm.L",       "footLock": true,  "gizmoRotate": true,  "gizmoTranslate": true  },
+    "hand.R":      { "sphereDrag": "ik",       "chain": "arm.R",       "footLock": true,  "gizmoRotate": true,  "gizmoTranslate": true  },
+    "upper_leg.L": {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
+    "upper_leg.R": {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
+    "lower_leg.L": { "sphereDrag": "ik-inner", "chain": "leg.L",       "footLock": false, "gizmoRotate": true,  "gizmoTranslate": false },
+    "lower_leg.R": { "sphereDrag": "ik-inner", "chain": "leg.R",       "footLock": false, "gizmoRotate": true,  "gizmoTranslate": false },
+    "foot.L":      { "sphereDrag": "ik",       "chain": "leg.L",       "footLock": false, "gizmoRotate": true,  "gizmoTranslate": true  },
+    "foot.R":      { "sphereDrag": "ik",       "chain": "leg.R",       "footLock": false, "gizmoRotate": true,  "gizmoTranslate": true  },
+    "toe.L":       {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
+    "toe.R":       {                                                               "gizmoRotate": true,  "gizmoTranslate": false }
+  }
+}

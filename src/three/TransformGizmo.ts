@@ -234,21 +234,25 @@ export class TransformGizmo {
 
   /**
    * Attach the gizmo to a joint node.
-   * @param boneNode   The Three.js Object3D for the joint — gizmo tracks this position.
-   * @param isIKJoint  If true, translation arrows are shown. If false, only rings.
+   * @param boneNode       The Three.js Object3D for the joint — gizmo tracks this position.
+   * @param showTranslate  If true, translation arrows are shown (IK effectors).
+   * @param showRotate     If true, rotation rings are shown. False for pure-IK tips (e.g. head).
    */
-  attach(boneNode: THREE.Object3D, isIKJoint: boolean): void {
+  attach(boneNode: THREE.Object3D, showTranslate: boolean, showRotate: boolean): void {
     this.attachedNode = boneNode
     this.group.visible = true
 
-    // Show/hide translation arrows based on joint type
-    this.arrowGroupX.visible = isIKJoint
-    this.arrowGroupY.visible = isIKJoint
-    this.arrowGroupZ.visible = isIKJoint
+    // Show/hide rings and arrows based on per-bone config
+    this.ringX.visible = showRotate
+    this.ringY.visible = showRotate
+    this.ringZ.visible = showRotate
 
-    // Remove arrow handle meshes from active handles list if not IK
-    // (so they don't respond to raycasting)
-    this._syncHandles(isIKJoint)
+    this.arrowGroupX.visible = showTranslate
+    this.arrowGroupY.visible = showTranslate
+    this.arrowGroupZ.visible = showTranslate
+
+    // Sync raycasting targets to match visible handles
+    this._syncHandles(showTranslate, showRotate)
 
     this.updateTransform()
   }
@@ -341,15 +345,15 @@ export class TransformGizmo {
   // --------------------------------------------------------------------------
 
   /**
-   * When isIKJoint changes, we need to add/remove arrow meshes from the
-   * `handles` array so GizmoController only raycasts visible targets.
+   * Rebuild the raycasting handle list to match currently visible handles.
+   * Called whenever attach() changes which handles are shown.
    */
-  private _syncHandles(isIKJoint: boolean): void {
-    // Rebuild handles list: always include rings, conditionally include arrows
+  private _syncHandles(showTranslate: boolean, showRotate: boolean): void {
     this.handles.length = 0
-    this.handles.push(this.ringX, this.ringY, this.ringZ)
-    if (isIKJoint) {
-      // Collect all meshes from each arrow group
+    if (showRotate) {
+      this.handles.push(this.ringX, this.ringY, this.ringZ)
+    }
+    if (showTranslate) {
       this.arrowGroupX.traverse((o) => { if (o instanceof THREE.Mesh) this.handles.push(o) })
       this.arrowGroupY.traverse((o) => { if (o instanceof THREE.Mesh) this.handles.push(o) })
       this.arrowGroupZ.traverse((o) => { if (o instanceof THREE.Mesh) this.handles.push(o) })

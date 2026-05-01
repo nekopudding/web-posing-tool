@@ -26,7 +26,16 @@
  *           └── lower_leg.L / lower_leg.R
  *               └── foot.L / foot.R              ← IK end effector
  *                   └── toe.L / toe.R
+ *
+ * IK chains and per-bone capabilities are defined in src/config/rig-config.json.
+ * Edit that file to change which bones have IK, rotation gizmos, or translation gizmos.
  */
+
+import rigConfigJson from '../config/rig-config.json'
+import type { RigConfig } from '../config/RigConfig'
+
+/** Typed reference to the loaded rig config. Used by GizmoController and ViewportCanvas. */
+export const RIG_CONFIG: RigConfig = rigConfigJson as RigConfig
 
 // ---------------------------------------------------------------------------
 // Bone name registry
@@ -82,15 +91,13 @@ export interface IKChainDef {
 }
 
 /**
- * The four IK chains used for limb posing.
- * Spine and head remain FK-only in v1 (directly drag-rotated, not IK-solved).
+ * IK chains derived from rig-config.json.
+ * Previously hardcoded — now driven by the config file for easy extensibility.
  */
-export const IK_CHAINS: IKChainDef[] = [
-  { name: 'arm.L', bones: ['shoulder.L', 'upper_arm.L', 'forearm.L', 'hand.L'] },
-  { name: 'arm.R', bones: ['shoulder.R', 'upper_arm.R', 'forearm.R', 'hand.R'] },
-  { name: 'leg.L', bones: ['upper_leg.L', 'lower_leg.L', 'foot.L'] },
-  { name: 'leg.R', bones: ['upper_leg.R', 'lower_leg.R', 'foot.R'] },
-]
+export const IK_CHAINS: IKChainDef[] = RIG_CONFIG.ikChains.map((c) => ({
+  name: c.name,
+  bones: c.bones as BoneName[],
+}))
 
 /**
  * Returns the IK chain that contains a given bone as its end effector,
@@ -101,6 +108,14 @@ export function findChainForEffector(boneName: BoneName): IKChainDef | undefined
   return IK_CHAINS.find(
     (chain) => chain.bones[chain.bones.length - 1] === boneName
   )
+}
+
+/**
+ * Returns the IK chain with the given name, or undefined.
+ * Used by GizmoController when looking up a chain from a BoneConfig.chain reference.
+ */
+export function findChainByName(name: string): IKChainDef | undefined {
+  return IK_CHAINS.find((chain) => chain.name === name)
 }
 
 // ---------------------------------------------------------------------------

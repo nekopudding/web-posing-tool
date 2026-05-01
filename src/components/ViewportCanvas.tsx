@@ -55,16 +55,31 @@ import { GizmoController } from '../three/GizmoController'
 import { GridOverlay } from '../three/GridOverlay'
 import { ExportHelper } from '../three/ExportHelper'
 import type { BoneName } from '../three/IKChains'
-import { IK_CHAINS } from '../three/IKChains'
+import { RIG_CONFIG } from '../three/IKChains'
 import type { PoseState } from '../store/useSceneStore'
 import styles from '../styles/ViewportCanvas.module.css'
 
 // Expose ExportHelper as a module-level singleton for use by ViewportPanel
 export const exportHelper = new ExportHelper()
 
-/** IK end effectors — these show translation arrows on the transform gizmo. */
-const IK_EFFECTOR_SET = new Set<string>(
-  IK_CHAINS.map((c) => c.bones[c.bones.length - 1])
+/**
+ * Bones that show translation arrows on the transform gizmo (gizmoTranslate: true).
+ * Derived from rig-config.json — no code change needed when adding new IK effectors.
+ */
+const GIZMO_TRANSLATE_SET = new Set<string>(
+  Object.entries(RIG_CONFIG.bones)
+    .filter(([, cfg]) => cfg.gizmoTranslate)
+    .map(([name]) => name)
+)
+
+/**
+ * Bones that show rotation rings on the transform gizmo (gizmoRotate: true).
+ * Derived from rig-config.json.
+ */
+const GIZMO_ROTATE_SET = new Set<string>(
+  Object.entries(RIG_CONFIG.bones)
+    .filter(([, cfg]) => cfg.gizmoRotate)
+    .map(([name]) => name)
 )
 
 export function ViewportCanvas() {
@@ -94,10 +109,9 @@ export function ViewportCanvas() {
 
     // ---- Gizmo controller ----
     const handlePoseChange = (characterId: string, pose: PoseState) => {
-      const { updatePose } = useSceneStore.getState()
-      for (const [boneName, q] of Object.entries(pose)) {
-        updatePose(characterId, boneName, q)
-      }
+      // Single atomic store update instead of N per-bone calls.
+      // pushHistory was already called by GizmoController._onPointerUp before this.
+      useSceneStore.getState().setBulkPose(characterId, pose)
     }
 
     const handleBoneSelect = (characterId: string, boneName: BoneName) => {
@@ -223,8 +237,9 @@ export function ViewportCanvas() {
           const mgr = charManagersRef.current.get(activeId)
           const boneNode = mgr?.getBoneNode(bone as BoneName)
           if (boneNode) {
-            const isIK = IK_EFFECTOR_SET.has(bone)
-            gizmo.transformGizmo.attach(boneNode, isIK)
+            const showTranslate = GIZMO_TRANSLATE_SET.has(bone)
+            const showRotate = GIZMO_ROTATE_SET.has(bone)
+            gizmo.transformGizmo.attach(boneNode, showTranslate, showRotate)
           }
         } else {
           gizmo.transformGizmo.detach()
@@ -278,6 +293,24 @@ export function ViewportCanvas() {
       (preset) => scene.setCameraPreset(preset)
     )
 
+    // ---- Keyboard shortcuts (undo/redo) ----
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept when the user is typing in an input or textarea.
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      const { undo, redo } = useSceneStore.getState()
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') {
+        e.preventDefault()
+        undo()
+      } else if (
+        (e.ctrlKey || e.metaKey) &&
+        (e.key === 'y' || (e.shiftKey && e.key === 'z'))
+      ) {
+        e.preventDefault()
+        redo()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+
     // ---- ResizeObserver ----
     const resizeObserver = new ResizeObserver((entries) => {
       const entry = entries[0]
@@ -300,6 +333,7 @@ export function ViewportCanvas() {
       unsubBg()
       unsubFov()
       unsubPreset()
+      window.removeEventListener('keydown', handleKeyDown)
       resizeObserver.disconnect()
 
       gizmo.dispose()

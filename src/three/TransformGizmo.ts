@@ -77,7 +77,7 @@ function makeHandleMaterial(color: number): THREE.MeshBasicMaterial {
     depthTest: false,
     depthWrite: false,
     transparent: true,
-    opacity: 0.9,
+    opacity: 0.55,
   })
 }
 
@@ -154,7 +154,7 @@ export class TransformGizmo {
     // TorusGeometry(radius, tubeRadius, radialSegments, tubularSegments)
     // radialSegments=6 gives a hexagonal cross-section (performance).
     // tubularSegments=48 for a smooth circle.
-    const ringGeo = new THREE.TorusGeometry(1.0, 0.04, 6, 48)
+    const ringGeo = new THREE.TorusGeometry(1.0, 0.015, 6, 48)
 
     this.ringX = new THREE.Mesh(ringGeo, this.matRingX)
     this.ringX.name = 'ring-x'
@@ -208,11 +208,11 @@ export class TransformGizmo {
     group.name = `arrow-${handleType}`
 
     // Shaft: thin cylinder, starts at y=0.9 (ring radius) to y=1.55
-    const shaftGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.65, 6)
+    const shaftGeo = new THREE.CylinderGeometry(0.006, 0.006, 0.65, 6)
     shaftGeo.translate(0, 0.9 + 0.65 / 2, 0) // place above the ring
 
     // Cone tip: at y=1.55 → 1.75
-    const coneGeo = new THREE.ConeGeometry(0.09, 0.2, 6)
+    const coneGeo = new THREE.ConeGeometry(0.04, 0.14, 6)
     coneGeo.translate(0, 0.9 + 0.65 + 0.1, 0) // 0.1 = half cone height
 
     const shaft = new THREE.Mesh(shaftGeo, mat)

@@ -301,9 +301,9 @@ export class GizmoController {
     if (!hit) return
 
     ds.currentTarget!.copy(this._targetPos)
-    const converged = this.solver.solve(joints, this._targetPos, boneLengths)
 
-    // Look up chain from config (works for all effectors including head, chest)
+    // Look up chain from config (works for all effectors including head, chest).
+    // Moved before the solve so objects are available for the joint refresh below.
     const boneConfig = RIG_CONFIG.bones[ds.effectorBoneName]
     const chainName = boneConfig?.chain
     const chain = chainName ? findChainByName(chainName) : IK_CHAINS.find(
@@ -312,6 +312,19 @@ export class GizmoController {
     if (!chain) return
     const objects = charMgr.getChainObjects(chain.bones)
     if (!objects) return
+
+    // Refresh ds.joints world positions from actual Three.js objects each frame.
+    // When _solveFullBodyCascade ran in the previous frame it moved the shoulder's
+    // actual world position (by solving hips→spine→chest→arm). Without this refresh,
+    // ds.joints[0] (chain root) still holds the position FABRIK's forward pass
+    // computed last frame — not the real shoulder world position. That stale root
+    // causes the backward-pass re-pin to anchor from the wrong place, producing a
+    // direction divergence in applyToObjects that makes the arm snap visually.
+    for (let i = 0; i < joints.length; i++) {
+      objects[i].getWorldPosition(joints[i].position)
+    }
+
+    const converged = this.solver.solve(joints, this._targetPos, boneLengths)
     this.solver.applyToObjects(joints, objects)
 
     // Full-body cascade: when the arm/chest chain can't reach, bend the spine

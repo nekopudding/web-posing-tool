@@ -92,6 +92,33 @@ const _dir = new THREE.Vector3()
 const _tip = new THREE.Vector3()
 
 // ---------------------------------------------------------------------------
+// Debug logging helpers — throttled to avoid spamming the console each frame.
+// ---------------------------------------------------------------------------
+
+const _logTimestamps: Record<string, number> = {}
+/** Log `msg` at most once every `intervalMs` ms per `key`. */
+function throttledLog(key: string, intervalMs: number, ...args: unknown[]): void {
+  const now = performance.now()
+  if ((now - (_logTimestamps[key] ?? 0)) >= intervalMs) {
+    _logTimestamps[key] = now
+    console.warn('[IKSolver]', ...args)
+  }
+}
+
+/** Returns true (and logs) if any joint in `joints` contains a NaN coordinate. */
+function hasNaNJoints(joints: IKJoint[], label: string): boolean {
+  for (const j of joints) {
+    const p = j.position
+    if (isNaN(p.x) || isNaN(p.y) || isNaN(p.z)) {
+      throttledLog(`nan-${label}-${j.boneName}`, 500,
+        `NaN position detected on bone "${j.boneName}" in "${label}"`, p)
+      return true
+    }
+  }
+  return false
+}
+
+// ---------------------------------------------------------------------------
 // IKSolver
 // ---------------------------------------------------------------------------
 
@@ -116,6 +143,16 @@ export class IKSolver {
   solve(joints: IKJoint[], target: THREE.Vector3, boneLengths: number[]): boolean {
     const n = joints.length
     if (n < 2) return true // Nothing to solve for a single joint.
+
+    const chainLabel = joints.map(j => j.boneName).join('→')
+
+    // Guard: NaN input positions cause silent divergence.
+    if (hasNaNJoints(joints, chainLabel)) return false
+    if (isNaN(target.x) || isNaN(target.y) || isNaN(target.z)) {
+      throttledLog(`nan-target-${chainLabel}`, 500,
+        `NaN target passed to solve for chain "${chainLabel}"`, target)
+      return false
+    }
 
     // Check reachability: if the target is farther than the total chain length,
     // stretch the chain straight toward the target (best we can do).
@@ -200,14 +237,17 @@ export class IKSolver {
    * For each bone segment (between joints[i] and joints[i+1]):
    *   1. Compute worldAxis = normalize(joint[i+1] - joint[i])
    *      This is the direction the bone should point in world space after the solve.
-   *   2. The bone's rest axis in its own local space is +Y (convention: bones
-   *      are modeled pointing up along their local Y axis in the placeholder rig).
-   *   3. Compute a quaternion that rotates +Y onto worldAxis:
-   *        q_world = Quaternion.setFromUnitVectors(UP, worldAxis)
-   *   4. Convert to parent-local space by applying the inverse of the parent's
-   *      world quaternion:
-   *        q_local = inverse(parent_world_q) * q_world
-   *   5. Assign q_local to the bone's .quaternion, then call updateMatrixWorld
+   *   2. Compute restDir = normalize(objects[i+1].position) — the direction from
+   *      objects[i]'s pivot to objects[i+1]'s pivot in objects[i]'s LOCAL space.
+   *      For most bones this is +Y (child placed at (0, len, 0)), but shoulder.L/R
+   *      has upper_arm at (±len, 0, 0) making restDir = ±X.
+   *   3. Convert worldAxis to parent-local space:
+   *        localAxis = invParentWorldQ.apply(worldAxis)
+   *   4. Compute local rotation: localQ = setFromUnitVectors(restDir, localAxis)
+   *      This rotates restDir onto localAxis, which after multiplying by parentWorldQ
+   *      rotates restDir onto worldAxis in world space — placing objects[i+1] at
+   *      exactly joints[i+1].position after updateMatrixWorld.
+   *   5. Assign localQ to the bone's .quaternion, then call updateMatrixWorld
    *      so subsequent bones see the updated transforms.
    *
    * Note: we update `objects[i]`, not `objects[i+1]`, because Object3D[i]
@@ -220,36 +260,57 @@ export class IKSolver {
   applyToObjects(joints: IKJoint[], objects: THREE.Object3D[]): void {
     const n = joints.length
 
-    // Temp quaternions — reused across iterations
-    const worldQ = new THREE.Quaternion()
     const parentWorldQ = new THREE.Quaternion()
     const invParentWorldQ = new THREE.Quaternion()
     const localQ = new THREE.Quaternion()
-    const up = new THREE.Vector3(0, 1, 0) // bones point along +Y in rest pose
+    const localAxis = new THREE.Vector3()
+    const restDir = new THREE.Vector3()
+
+    const chainLabel = joints.map(j => j.boneName).join('→')
 
     for (let i = 0; i < n - 1; i++) {
       const boneObj = objects[i]
+      const childObj = objects[i + 1]
 
-      // Direction this bone segment should point in world space
+      // Direction this bone segment should point in world space (FABRIK result).
       _tip.subVectors(joints[i + 1].position, joints[i].position)
-      if (_tip.lengthSq() === 0) continue // degenerate: skip
+      if (_tip.lengthSq() === 0) {
+        throttledLog(`degenerate-${chainLabel}-${i}`, 500,
+          `Degenerate (zero-length) bone segment between joints[${i}] "${joints[i].boneName}" and joints[${i+1}] "${joints[i+1].boneName}" — skipping rotation. Both positions:`,
+          joints[i].position.toArray().map(v => +v.toFixed(4)),
+          joints[i+1].position.toArray().map(v => +v.toFixed(4)),
+        )
+        continue
+      }
       _tip.normalize()
 
-      // World-space quaternion: rotate +Y to point in `_tip` direction
-      worldQ.setFromUnitVectors(up, _tip)
+      // Rest direction: the direction from boneObj's pivot to childObj's pivot
+      // in boneObj's LOCAL space (childObj.position, since childObj is a direct
+      // child of boneObj). Most bones store their child at (0, len, 0) so
+      // restDir = +Y — but shoulder.L/R places upper_arm at (±len, 0, 0) making
+      // restDir = ±X. Using the actual local offset (not hardcoded +Y) makes
+      // applyToObjects correct for all bones regardless of rig construction.
+      restDir.copy(childObj.position).normalize()
+      if (restDir.lengthSq() < 1e-6) continue // child coincident with parent pivot
 
-      // Convert to local space: local = inverse(parentWorld) * world
+      // We want: after applying localQ to boneObj, the world direction from
+      // joints[i] to joints[i+1] equals _tip.
+      //
+      //   worldDir = (parentWorldQ * localQ).apply(restDir) = _tip
+      //   => localQ.apply(restDir) = invParentWorldQ.apply(_tip)  [= localAxis]
+      //   => localQ = setFromUnitVectors(restDir, localAxis)
+      parentWorldQ.identity()
       if (boneObj.parent) {
         boneObj.parent.getWorldQuaternion(parentWorldQ)
-        invParentWorldQ.copy(parentWorldQ).invert()
-        localQ.multiplyQuaternions(invParentWorldQ, worldQ)
-      } else {
-        localQ.copy(worldQ)
       }
+      invParentWorldQ.copy(parentWorldQ).invert()
+      localAxis.copy(_tip).applyQuaternion(invParentWorldQ).normalize()
+
+      localQ.setFromUnitVectors(restDir, localAxis)
 
       boneObj.quaternion.copy(localQ)
-      // Force the matrix to update immediately so the next bone in the
-      // chain reads the correct parent transform.
+      // Force the matrix to update immediately so subsequent bones in the
+      // chain read the correct parent transform.
       boneObj.updateMatrixWorld(true)
     }
   }

@@ -79,6 +79,17 @@ import { useSceneStore, type PoseState } from '../store/useSceneStore'
 /** Movement threshold in pixels below which a pointerdown+up is a click. */
 const CLICK_THRESHOLD = 5
 
+// ---------------------------------------------------------------------------
+// Debug logging helpers
+// ---------------------------------------------------------------------------
+const _gcLogTs: Record<string, number> = {}
+function throttledWarn(key: string, intervalMs: number, ...args: unknown[]): void {
+  const now = performance.now()
+  if ((now - (_gcLogTs[key] ?? 0)) >= intervalMs) {
+    _gcLogTs[key] = now
+    console.log('[GizmoController]', ...args)
+  }
+}
 
 // --------------------------------------------------------------------------
 // DragState — only non-null during an active drag
@@ -298,7 +309,11 @@ export class GizmoController {
 
     this.raycaster.setFromCamera(this.ndc, this.sceneManager.camera)
     const hit = this.raycaster.ray.intersectPlane(dragPlane, this._targetPos)
-    if (!hit) return
+    if (!hit) {
+      throttledWarn(`plane-miss-${ds.effectorBoneName}`, 500,
+        `Drag plane miss for "${ds.effectorBoneName}" — ray parallel to plane? ndc=${JSON.stringify(this.ndc)}, planeNormal=${dragPlane.normal.toArray().map(v => +v.toFixed(3))}`)
+      return
+    }
 
     ds.currentTarget!.copy(this._targetPos)
 
@@ -324,8 +339,21 @@ export class GizmoController {
       objects[i].getWorldPosition(joints[i].position)
     }
 
-    const converged = this.solver.solve(joints, this._targetPos, boneLengths)
-    this.solver.applyToObjects(joints, objects)
+    // If the arm is out of reach AND foot-lock cascade is configured, skip the
+    // primary arm solve. Applying the primary stretched-arm solve first disturbs
+    // Three.js state before the cascade reads it, causing the cascade to start
+    // from a different position every frame → oscillation. Skipping keeps the
+    // cascade's starting state equal to the previous frame's converged output.
+    const totalArmLength = boneLengths.reduce((a, b) => a + b, 0)
+    const armReachable = joints[0].position.distanceTo(this._targetPos) <= totalArmLength
+
+    let converged: boolean
+    if (!armReachable && ds.savedFootPosL && ds.savedFootPosR) {
+      converged = false // cascade handles the full chain below
+    } else {
+      converged = this.solver.solve(joints, this._targetPos, boneLengths)
+      this.solver.applyToObjects(joints, objects)
+    }
 
     // Full-body cascade: when the arm/chest chain can't reach, bend the spine
     // and re-pin feet at their pre-drag world positions.

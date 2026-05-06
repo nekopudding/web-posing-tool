@@ -183,6 +183,29 @@ share one skeleton and moving one moves all.
 
 ---
 
+## Adapting to a Different Skeleton
+
+To swap in an external humanoid model with different bone names or more bones, only two files need to change. Everything else (`IKSolver`, `GizmoController`, the Zustand store, UI panels) reads from these two and requires no direct edits.
+
+### `src/three/IKChains.ts` — the main one
+
+This is the single source of truth for all bone names. Update:
+- `BoneName` union type — add/rename names to match the model
+- `BONE_LENGTHS` — rest-pose segment lengths
+- `IK_CHAINS` — which bones form each chain (arm, leg, etc.)
+- `RIG_CONFIG.bones` — per-bone drag behavior: mode (`ik`, `ik-inner`, `translate`), which chain it belongs to, whether `footLock` applies
+
+### `src/three/CharacterManager.ts` — the other one
+
+Replace `buildPlaceholderRig()` with `loadGLTF(url)` (Phase 4) that:
+1. Loads the GLB via `SkeletonUtils.clone(gltf.scene)` (plain `.clone()` shares the skeleton across characters — see gotcha below)
+2. Walks the skeleton and populates `boneNodeMap` — mapping `BoneName` strings to the model's actual `Bone` objects
+3. Synthesizes invisible sphere hitboxes on each bone for raycasting (or reuses the existing joint sphere approach)
+
+If the model's bone names don't match the `BoneName` convention, translate them in the `loadGLTF` mapping step (e.g. `"mixamorigRightHand"` → `"hand.R"`). `GizmoController.getChainObjects()` returns `null` silently for any missing bone, so a partially-mapped skeleton degrades gracefully.
+
+---
+
 ## Running the App
 
 ```bash

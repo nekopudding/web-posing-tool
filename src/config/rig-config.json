@@ -6,11 +6,12 @@
     { "name": "leg.L",       "bones": ["upper_leg.L", "lower_leg.L", "foot.L"] },
     { "name": "leg.R",       "bones": ["upper_leg.R", "lower_leg.R", "foot.R"] },
     { "name": "neck_head",   "bones": ["neck", "head"] },
-    { "name": "spine_chain", "bones": ["hips", "spine", "chest"] }
+    { "name": "spine_chain", "bones": ["hips", "spine", "spine_upper", "chest"] }
   ],
   "bones": {
     "hips":        { "sphereDrag": "translate",                                  "gizmoRotate": true,  "gizmoTranslate": false },
     "spine":       {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
+    "spine_upper": {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
     "chest":       { "sphereDrag": "ik",       "chain": "spine_chain", "footLock": true,  "gizmoRotate": true,  "gizmoTranslate": true  },
     "neck":        {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
     "head":        { "sphereDrag": "ik",       "chain": "neck_head",   "footLock": false, "gizmoRotate": false, "gizmoTranslate": true  },

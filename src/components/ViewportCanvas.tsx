@@ -123,6 +123,16 @@ export function ViewportCanvas() {
     const gizmo = new GizmoController(canvas, scene, handlePoseChange, handleBoneSelect)
     gizmoRef.current = gizmo
 
+    /**
+     * Load the GLB model for a character.
+     * Falls back gracefully to the placeholder rig if loading fails.
+     */
+    const loadModelForCharacter = (mgr: CharacterManager) => {
+      mgr.loadGLTF('/models/Y Bot.glb').catch((err) => {
+        console.warn('[ViewportCanvas] GLB load failed, using placeholder rig:', err)
+      })
+    }
+
     // ---- Populate initial characters from the store ----
     const initialChars = useSceneStore.getState().characters
     for (const char of initialChars) {
@@ -131,6 +141,7 @@ export function ViewportCanvas() {
       mgr.setWorldRotation(char.worldRotation)
       charManagersRef.current.set(char.id, mgr)
       gizmo.registerCharacter(mgr)
+      loadModelForCharacter(mgr)
     }
 
     // ========================================================================
@@ -152,6 +163,7 @@ export function ViewportCanvas() {
           mgr.setWorldRotation(char.worldRotation)
           charManagersRef.current.set(id, mgr)
           gizmo.registerCharacter(mgr)
+          loadModelForCharacter(mgr)
         }
 
         for (const id of removed) {

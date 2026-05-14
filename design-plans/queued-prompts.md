@@ -1,1 +1,0 @@
-- next upload the GLB model and try posing with new model

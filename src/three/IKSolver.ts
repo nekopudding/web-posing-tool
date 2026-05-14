@@ -125,6 +125,8 @@ function hasNaNJoints(joints: IKJoint[], label: string): boolean {
 export class IKSolver {
   /** Maximum solve iterations per frame. 10 converges well for ≤4-bone chains. */
   private maxIterations = 10
+  /** Counts applyToObjects calls for throttled debug logging. */
+  private _applyCallCount = 0
   /**
    * Distance tolerance (world units) — stop iterating when the tip is this
    * close to the target. 0.001 = 1 mm at 1 unit = 1 meter scale.
@@ -259,12 +261,17 @@ export class IKSolver {
    */
   applyToObjects(joints: IKJoint[], objects: THREE.Object3D[]): void {
     const n = joints.length
+    const shouldLog = this._applyCallCount % 30 === 0
+    this._applyCallCount++
 
     const parentWorldQ = new THREE.Quaternion()
     const invParentWorldQ = new THREE.Quaternion()
     const localQ = new THREE.Quaternion()
     const localAxis = new THREE.Vector3()
     const restDir = new THREE.Vector3()
+    // Temporaries for swing-delta approach (preserves bone twist).
+    const currentDir = new THREE.Vector3()
+    const swingQ = new THREE.Quaternion()
 
     const chainLabel = joints.map(j => j.boneName).join('→')
 
@@ -285,12 +292,17 @@ export class IKSolver {
       _tip.normalize()
 
       // Rest direction: the direction from boneObj's pivot to childObj's pivot
-      // in boneObj's LOCAL space (childObj.position, since childObj is a direct
-      // child of boneObj). Most bones store their child at (0, len, 0) so
-      // restDir = +Y — but shoulder.L/R places upper_arm at (±len, 0, 0) making
-      // restDir = ±X. Using the actual local offset (not hardcoded +Y) makes
-      // applyToObjects correct for all bones regardless of rig construction.
-      restDir.copy(childObj.position).normalize()
+      // in boneObj's LOCAL space.
+      //
+      // IMPORTANT: for Mixamo FBX bones (and other models loaded with
+      // matrixAutoUpdate=false), the FBX loader stores the bone offset directly
+      // in bone.matrix and leaves bone.position = (0,0,0). Reading childObj.position
+      // would give the zero vector for ALL FBX bones, causing the `continue` below
+      // to silently skip every bone. Instead, extract the translation from the
+      // local matrix — this works for both placeholder rig (matrixAutoUpdate=true,
+      // where matrix.translation == position) and FBX bones (matrixAutoUpdate=false,
+      // where matrix.translation holds the real offset).
+      restDir.setFromMatrixPosition(childObj.matrix).normalize()
       if (restDir.lengthSq() < 1e-6) continue // child coincident with parent pivot
 
       // We want: after applying localQ to boneObj, the world direction from
@@ -306,11 +318,37 @@ export class IKSolver {
       invParentWorldQ.copy(parentWorldQ).invert()
       localAxis.copy(_tip).applyQuaternion(invParentWorldQ).normalize()
 
-      localQ.setFromUnitVectors(restDir, localAxis)
-
-      boneObj.quaternion.copy(localQ)
+      // Swing-delta: rotate the current bone direction onto localAxis, preserving
+      // the bone's existing twist component. Using setFromUnitVectors alone would
+      // replace the full quaternion and lose twist, which breaks non-identity
+      // rest-pose bones (e.g. Mixamo FBX where each bone has a baked rest rotation).
+      currentDir.copy(restDir).applyQuaternion(boneObj.quaternion)
+      const qBefore = boneObj.quaternion.clone()
+      if (currentDir.lengthSq() > 1e-6) {
+        swingQ.setFromUnitVectors(currentDir.normalize(), localAxis)
+        boneObj.quaternion.premultiply(swingQ)
+      } else {
+        // Fallback for zero-length current direction (degenerate rest pose).
+        localQ.setFromUnitVectors(restDir, localAxis)
+        boneObj.quaternion.copy(localQ)
+      }
+      if (shouldLog) {
+        console.log(`[applyToObjects] bone[${i}] "${joints[i].boneName}"`,
+          '| matrixAutoUpdate:', boneObj.matrixAutoUpdate,
+          '| restDir:', restDir.toArray().map(v => +v.toFixed(3)),
+          '| localAxis:', localAxis.toArray().map(v => +v.toFixed(3)),
+          '| swingAngle°:', +(THREE.MathUtils.radToDeg(2 * Math.acos(Math.min(1, Math.abs(swingQ.w)))).toFixed(2)),
+          '| qBefore:', [qBefore.x, qBefore.y, qBefore.z, qBefore.w].map(v => +v.toFixed(3)),
+          '| qAfter:', [boneObj.quaternion.x, boneObj.quaternion.y, boneObj.quaternion.z, boneObj.quaternion.w].map(v => +v.toFixed(3)),
+        )
+      }
       // Force the matrix to update immediately so subsequent bones in the
       // chain read the correct parent transform.
+      // NOTE: explicitly call updateMatrix() first because FBX bones may have
+      // matrixAutoUpdate=false, in which case updateMatrixWorld(true) would NOT
+      // recompute the local matrix from the new quaternion — leaving world
+      // positions stale and causing FABRIK to solve from the same start every frame.
+      boneObj.updateMatrix()
       boneObj.updateMatrixWorld(true)
     }
   }

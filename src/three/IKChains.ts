@@ -50,6 +50,7 @@ export const BONE_NAMES = [
   'root',
   'hips',
   'spine',
+  'spine_upper',
   'chest',
   'neck',
   'head',
@@ -132,7 +133,8 @@ export function findChainByName(name: string): IKChainDef | undefined {
  * the actual vertex positions in the mesh instead.
  */
 export const BONE_LENGTHS: Partial<Record<BoneName, number>> = {
-  spine:       0.30,
+  spine:       0.15,
+  spine_upper: 0.15,
   chest:       0.30,
   neck:        0.12,
   head:        0.25,

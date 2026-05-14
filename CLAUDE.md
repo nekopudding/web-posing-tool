@@ -70,17 +70,21 @@ Instead, `ViewportCanvas.tsx` registers Zustand subscriptions with `store.subscr
 
 See `ViewportCanvas.tsx` for the full subscription list.
 
-### 3. CharacterManager — Placeholder Rig Structure
+### 3. CharacterManager — Rig Structure
 
-Phase 1–3 uses `THREE.Object3D` nodes (not `THREE.Bone`/`THREE.Skeleton`).
-Each joint node has:
+Two rig modes exist:
+
+**Placeholder rig** (`buildPlaceholderRig()`): `THREE.Object3D` nodes with box/sphere
+geometry. Used as a fallback if GLB loading fails. Each joint node has:
 - A `SphereGeometry` mesh at origin with `userData.boneName` and `userData.characterId`
   (raycasting target for GizmoController)
 - A `BoxGeometry` mesh offset up by `boneLength/2` (bone segment visual)
 - A companion outline mesh with `OutlineMaterial` (BackSide, same geometry)
 
-Phase 4 (GLTF model): replace `buildPlaceholderRig()` with `loadGLTF(url)` which
-populates `boneNodeMap` from the GLTF's skeleton bones instead.
+**GLB rig** (`loadGLTF(url)`): loads `public/models/Y Bot.glb` (Mixamo Y Bot exported
+from Blender as GLB). `MIXAMO_BONE_MAP` translates Mixamo bone names to our `BoneName`
+convention. Invisible sphere hitboxes are added to each mapped bone for raycasting.
+`SkeletonUtils.clone()` is required so each character instance gets its own skeleton.
 
 ### 4. IK Solver (FABRIK)
 
@@ -153,8 +157,8 @@ IK chains (arms and legs only; spine/head remain FK-only):
 - [x] Phase 1 — Scaffold + placeholder rig (box skeleton, orbitable)
 - [x] Phase 2 — FABRIK IK + inverted hull outline + gizmo drag
 - [x] Phase 3 — All UI panels + Zustand store wired
-- [ ] Blender — bone rename, shape keys, layer meshes, GLB export → `public/models/humanoid.glb`
-- [ ] Phase 4 — GLTF loaded, `CharacterManager.loadGLTF()`, morph targets
+- [x] Phase 4 — GLB loaded (`Y Bot.glb` via Blender export), `CharacterManager.loadGLTF()`
+- [ ] Phase 4b — Bone constraints (angle limits per joint), morph targets
 - [ ] Phase 5 — Export, mirror pose, pose save/load, character rename
 
 ---
@@ -176,7 +180,7 @@ same reference — update both. See `SceneManager.setCameraPreset()`.
 from overflowing when the sidebar is present. Without it, flexbox defaults `min-width: auto`
 (content size) and the canvas won't shrink.
 
-**GLTF SkeletonUtils.clone**: when loading Phase 4, use `SkeletonUtils.clone(gltf.scene)`
+**GLTF SkeletonUtils.clone**: `loadGLTF` uses `SkeletonUtils.clone(gltf.scene)`
 (from `three/examples/jsm/utils/SkeletonUtils.js`) to deep-clone the skeleton for each
 character. A plain `gltf.scene.clone()` does NOT clone the skeleton — all characters
 share one skeleton and moving one moves all.
@@ -197,12 +201,13 @@ This is the single source of truth for all bone names. Update:
 
 ### `src/three/CharacterManager.ts` — the other one
 
-Replace `buildPlaceholderRig()` with `loadGLTF(url)` (Phase 4) that:
-1. Loads the GLB via `SkeletonUtils.clone(gltf.scene)` (plain `.clone()` shares the skeleton across characters — see gotcha below)
-2. Walks the skeleton and populates `boneNodeMap` — mapping `BoneName` strings to the model's actual `Bone` objects
-3. Synthesizes invisible sphere hitboxes on each bone for raycasting (or reuses the existing joint sphere approach)
+`loadGLTF(url)` already handles this:
+1. Loads the GLB via `SkeletonUtils.clone(gltf.scene)` (plain `.clone()` shares the skeleton across characters — see gotcha above)
+2. Detects the Mixamo bone name prefix (`"mixamorig:"` or `"mixamorig"`) automatically
+3. Walks the skeleton via `MIXAMO_BONE_MAP` and populates `boneNodeMap`
+4. Adds invisible sphere hitboxes on each mapped bone
 
-If the model's bone names don't match the `BoneName` convention, translate them in the `loadGLTF` mapping step (e.g. `"mixamorigRightHand"` → `"hand.R"`). `GizmoController.getChainObjects()` returns `null` silently for any missing bone, so a partially-mapped skeleton degrades gracefully.
+If the model's bone names don't match the Mixamo convention, update `MIXAMO_BONE_MAP` in `CharacterManager.ts`. `GizmoController.getChainObjects()` returns `null` silently for any missing bone, so a partially-mapped skeleton degrades gracefully.
 
 ---
 

@@ -5,10 +5,6 @@
  * PLACEHOLDER RIG ARCHITECTURE
  * ============================================================================
  *
- * In Phase 1–3 (no real GLTF model), each character is represented as a
- * hierarchy of Three.js Object3D nodes connected by BoxGeometry "bone" segments
- * and SphereGeometry "joint" markers.
- *
  * Each joint node in the hierarchy:
  *   1. Sits at the anatomical joint position in its parent's local space.
  *   2. Has a child BoxGeometry mesh representing the bone segment extending
@@ -27,8 +23,11 @@
  *               ├─ spineNode
  *               │    ├─ spine_bone
  *               │    ├─ spine_gizmo
- *               │    └─ chestNode
- *               │         ├─ ...
+ *               │    └─ spineUpperNode
+ *               │         ├─ spine_upper_bone
+ *               │         ├─ spine_upper_gizmo
+ *               │         └─ chestNode
+ *               │              ├─ ...
  *               ├─ shoulder.L_Node
  *               │    ├─ ...
  *               └─ upper_leg.L_Node
@@ -57,6 +56,8 @@
  */
 
 import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { BONE_LENGTHS, type BoneName } from './IKChains'
 import { createOutlineMaterial, setOutlineThickness } from './OutlineMaterial'
 import type { PoseState, MorphWeights, LayerVisibility, SerializedQuaternion } from '../store/useSceneStore'
@@ -116,6 +117,58 @@ const SELECTED_JOINT_MATERIAL = new THREE.MeshStandardMaterial({
   metalness: 0.3,
 })
 
+/**
+ * Overlay variants of the joint materials with depthTest=false.
+ * Used for loaded model rigs (GLTF/FBX) where bone origins sit inside the mesh
+ * body and would be occluded by the surface if depth-tested normally.
+ */
+const JOINT_MATERIAL_OVERLAY = JOINT_MATERIAL.clone()
+JOINT_MATERIAL_OVERLAY.depthTest = false
+const ACTIVE_JOINT_MATERIAL_OVERLAY = ACTIVE_JOINT_MATERIAL.clone()
+ACTIVE_JOINT_MATERIAL_OVERLAY.depthTest = false
+const SELECTED_JOINT_MATERIAL_OVERLAY = SELECTED_JOINT_MATERIAL.clone()
+SELECTED_JOINT_MATERIAL_OVERLAY.depthTest = false
+
+// --------------------------------------------------------------------------
+// Mixamo bone name mapping
+// --------------------------------------------------------------------------
+
+/**
+ * Maps our canonical BoneName to the Mixamo bone base name (without prefix).
+ *
+ * Mixamo GLB exports (via Blender) use one of two naming conventions:
+ *   "mixamorig:Hips"  — colon-separated namespace (most common)
+ *   "mixamorigHips"   — no namespace separator
+ *
+ * loadGLTF() detects which variant is present and prepends the correct prefix.
+ *
+ * Mixamo bones are direct deformation bones (no control/DEF split like Rigify).
+ */
+const MIXAMO_BONE_MAP: Partial<Record<BoneName, string>> = {
+  hips:          'Hips',
+  spine:         'Spine',
+  spine_upper:   'Spine1',
+  chest:         'Spine2',
+  neck:          'Neck',
+  head:          'Head',
+  'shoulder.L':  'LeftShoulder',
+  'upper_arm.L': 'LeftArm',
+  'forearm.L':   'LeftForeArm',
+  'hand.L':      'LeftHand',
+  'shoulder.R':  'RightShoulder',
+  'upper_arm.R': 'RightArm',
+  'forearm.R':   'RightForeArm',
+  'hand.R':      'RightHand',
+  'upper_leg.L': 'LeftUpLeg',
+  'lower_leg.L': 'LeftLeg',
+  'foot.L':      'LeftFoot',
+  'toe.L':       'LeftToeBase',
+  'upper_leg.R': 'RightUpLeg',
+  'lower_leg.R': 'RightLeg',
+  'foot.R':      'RightFoot',
+  'toe.R':       'RightToeBase',
+}
+
 // --------------------------------------------------------------------------
 // CharacterManager
 // --------------------------------------------------------------------------
@@ -145,8 +198,22 @@ export class CharacterManager {
 
   /**
    * All outline ShaderMaterial instances — updated when outline thickness changes.
+   * Only populated for the placeholder rig (FBX uses its own materials).
    */
   private outlineMaterials: THREE.ShaderMaterial[] = []
+
+  /**
+   * Rest-pose quaternions for each bone in boneNodeMap.
+   * Placeholder rig: all identity.
+   * FBX rig: captured from bone.quaternion at load time (Mixamo T-pose).
+   *
+   * The store holds deltas from these rest poses. applyPoseState multiplies
+   * restQ * storeQ to get the absolute local quaternion to set on the bone.
+   */
+  private _restPose: Map<BoneName, THREE.Quaternion> = new Map()
+
+  /** True once loadFBX has successfully populated boneNodeMap from a loaded model. */
+  private _isGLTFRig = false
 
   private scene: THREE.Scene
   /** Whether this character is the active (selected) one in the roster. */
@@ -164,7 +231,7 @@ export class CharacterManager {
   }
 
   // --------------------------------------------------------------------------
-  // Rig construction
+  // Rig construction — placeholder
   // --------------------------------------------------------------------------
 
   /**
@@ -179,6 +246,8 @@ export class CharacterManager {
     this.boneNodeMap.clear()
     this.jointMeshes.length = 0
     this.outlineMaterials.length = 0
+    this._restPose.clear()
+    this._isGLTFRig = false
 
     // The root Object3D acts as the rig root at y=0
     const rigRoot = new THREE.Object3D()
@@ -192,20 +261,27 @@ export class CharacterManager {
 
     // ---- Hips ----
     // Hips are centered at y=0.9 (approximately mid-torso height for 1.7m figure)
-    const hipsNode = this.createJointNode('hips', BONE_LENGTHS['spine'] ?? 0.3)
+    const hipsNode = this.createJointNode('hips', BONE_LENGTHS['spine'] ?? 0.15)
     hipsNode.position.set(0, 0.9, 0)
     rootNode.add(hipsNode)
     this.boneNodeMap.set('hips', hipsNode)
 
-    // ---- Spine chain: hips → spine → chest ----
-    const spineNode = this.createJointNode('spine', BONE_LENGTHS['chest'] ?? 0.3)
-    spineNode.position.set(0, BONE_LENGTHS['spine'] ?? 0.3, 0)
+    // ---- Spine chain: hips → spine → spine_upper → chest ----
+    // spine_upper is added as an intermediate bone between spine and chest so
+    // the spine_chain IK chain uses all direct parent-child bones.
+    const spineNode = this.createJointNode('spine', BONE_LENGTHS['spine_upper'] ?? 0.15)
+    spineNode.position.set(0, BONE_LENGTHS['spine'] ?? 0.15, 0)
     hipsNode.add(spineNode)
     this.boneNodeMap.set('spine', spineNode)
 
+    const spineUpperNode = this.createJointNode('spine_upper', BONE_LENGTHS['chest'] ?? 0.30)
+    spineUpperNode.position.set(0, BONE_LENGTHS['spine_upper'] ?? 0.15, 0)
+    spineNode.add(spineUpperNode)
+    this.boneNodeMap.set('spine_upper', spineUpperNode)
+
     const chestNode = this.createJointNode('chest', 0)
-    chestNode.position.set(0, BONE_LENGTHS['chest'] ?? 0.3, 0)
-    spineNode.add(chestNode)
+    chestNode.position.set(0, BONE_LENGTHS['chest'] ?? 0.30, 0)
+    spineUpperNode.add(chestNode)
     this.boneNodeMap.set('chest', chestNode)
 
     // ---- Neck and head ----
@@ -297,6 +373,12 @@ export class CharacterManager {
       footNode.add(toeNode)
       this.boneNodeMap.set(toeName, toeNode)
     }
+
+    // Initialize rest pose with identity for all mapped bones.
+    // For the placeholder rig, identity = T-pose by construction.
+    for (const boneName of this.boneNodeMap.keys()) {
+      this._restPose.set(boneName, new THREE.Quaternion())
+    }
   }
 
   /**
@@ -341,6 +423,95 @@ export class CharacterManager {
     return node
   }
 
+  /**
+   * Load a GLB/GLTF model and replace the placeholder rig.
+   *
+   * Unlike loadFBX, GLTFLoader gives bones with proper position/quaternion/scale
+   * already decomposed — no matrix.decompose() hack needed, and matrixAutoUpdate
+   * is already true by default. Scale is 1.0 (GLB from Blender exports in meters).
+   *
+   * Bone names in Blender-exported GLB from Mixamo FBX are typically the same as
+   * the FBX names ("mixamorig:Hips" or "mixamorig_Hips"), so MIXAMO_BONE_MAP is reused.
+   */
+  async loadGLTF(url: string): Promise<void> {
+    const loader = new GLTFLoader()
+    const gltf = await loader.loadAsync(url)
+
+    // SkeletonUtils.clone deep-clones the skeleton so each character gets its own.
+    // Plain gltf.scene.clone() shares the skeleton across all characters — don't use it.
+    const clonedScene = skeletonClone(gltf.scene) as THREE.Group
+
+    // Clear placeholder rig
+    while (this.group.children.length > 0) {
+      this.group.remove(this.group.children[0])
+    }
+    this.boneNodeMap.clear()
+    this.jointMeshes.length = 0
+    this.outlineMaterials.length = 0
+    this._restPose.clear()
+
+    this.group.add(clonedScene)
+
+    // Build flat name→bone lookup from all bones in the cloned scene.
+    const allBones = new Map<string, THREE.Object3D>()
+    clonedScene.traverse((obj) => {
+      if ((obj as THREE.Bone).isBone) allBones.set(obj.name, obj)
+    })
+
+    const boneNames = [...allBones.keys()]
+    console.log('[CharacterManager] GLB bones found:', boneNames)
+
+    // Detect Mixamo prefix — same logic as loadFBX.
+    // Blender preserves the original FBX bone names including "mixamorig:" or "mixamorig".
+    // Some exporters replace the colon with an underscore; handle both.
+    let prefix = ''
+    if (boneNames.some(n => n.startsWith('mixamorig:'))) {
+      prefix = 'mixamorig:'
+    } else if (boneNames.some(n => n.startsWith('mixamorig'))) {
+      prefix = 'mixamorig'
+    }
+    // If prefix is empty the bone names are already bare (e.g. just "Hips").
+
+    // Populate boneNodeMap using the Mixamo base name mapping.
+    for (const [ourName, baseName] of Object.entries(MIXAMO_BONE_MAP) as [BoneName, string][]) {
+      const bone = allBones.get(prefix + baseName)
+      if (bone) {
+        this.boneNodeMap.set(ourName, bone)
+      } else {
+        console.warn(`[CharacterManager] GLB bone "${prefix + baseName}" not found for "${ourName}"`)
+      }
+    }
+
+    // Capture rest-pose quaternions before adding hitbox spheres.
+    // GLTFLoader already decomposes transforms, so bone.quaternion is correct here.
+    for (const [boneName, bone] of this.boneNodeMap) {
+      this._restPose.set(boneName, bone.quaternion.clone())
+    }
+
+    // GLB from Blender: the armature root may be scaled. Compute a counter-scale
+    // for the gizmo spheres so they remain the correct world-space radius.
+    // We read the world scale of any mapped bone to account for nested scale nodes.
+    const anyBone = this.boneNodeMap.values().next().value
+    const boneWorldScale = anyBone
+      ? anyBone.getWorldScale(new THREE.Vector3()).x
+      : 1
+    const sphereScale = boneWorldScale > 0 ? 1 / boneWorldScale : 1
+
+    for (const [boneName, boneObj] of this.boneNodeMap) {
+      const sphere = new THREE.Mesh(JOINT_GEO, JOINT_MATERIAL_OVERLAY.clone())
+      sphere.name = `gizmo_${boneName}`
+      sphere.userData.boneName = boneName
+      sphere.userData.characterId = this.characterId
+      sphere.scale.setScalar(sphereScale)
+      sphere.renderOrder = 3
+      boneObj.add(sphere)
+      this.jointMeshes.push(sphere)
+    }
+
+    this._isGLTFRig = true
+    this._refreshJointMaterials()
+  }
+
   // --------------------------------------------------------------------------
   // Pose application
   // --------------------------------------------------------------------------
@@ -349,26 +520,48 @@ export class CharacterManager {
    * Apply a PoseState (from the Zustand store) to the Three.js rig.
    * Called by the Zustand subscription in ViewportCanvas — NOT from React renders.
    *
+   * The store holds delta quaternions relative to each bone's rest pose.
+   *   bone.quaternion = restQ * storeQ
+   * For the placeholder rig restQ = identity, so this reduces to bone.q = storeQ.
+   *
    * @param pose  Map of boneName → SerializedQuaternion {x,y,z,w}
    */
   applyPoseState(pose: PoseState): void {
+    console.trace('[applyPoseState called]')
     for (const [boneName, q] of Object.entries(pose)) {
       const node = this.boneNodeMap.get(boneName as BoneName)
       if (!node) continue
-      node.quaternion.set(q.x, q.y, q.z, q.w)
+      const restQ = this._restPose.get(boneName as BoneName)
+      if (restQ) {
+        // Apply the stored delta on top of the rest pose quaternion.
+        node.quaternion.copy(restQ).multiply(new THREE.Quaternion(q.x, q.y, q.z, q.w))
+      } else {
+        node.quaternion.set(q.x, q.y, q.z, q.w)
+      }
     }
   }
 
   /**
    * Extract the current rig rotation into a PoseState object suitable for
    * storing in Zustand. Called by GizmoController on pointerup.
+   *
+   * Returns delta quaternions relative to each bone's rest pose so that
+   * re-applying via applyPoseState round-trips correctly:
+   *   storeQ = restQ.invert() * bone.q
    */
   extractPoseState(): PoseState {
     const pose: PoseState = {}
+    const delta = new THREE.Quaternion()
     for (const [boneName, node] of this.boneNodeMap) {
       const q = node.quaternion
-      const entry: SerializedQuaternion = { x: q.x, y: q.y, z: q.z, w: q.w }
-      pose[boneName] = entry
+      const restQ = this._restPose.get(boneName)
+      if (restQ) {
+        delta.copy(restQ).invert().multiply(q)
+        pose[boneName] = { x: delta.x, y: delta.y, z: delta.z, w: delta.w }
+      } else {
+        const entry: SerializedQuaternion = { x: q.x, y: q.y, z: q.z, w: q.w }
+        pose[boneName] = entry
+      }
     }
     return pose
   }
@@ -412,12 +605,17 @@ export class CharacterManager {
 
   /** Internal: re-assign materials to all joint spheres based on current state. */
   private _refreshJointMaterials(): void {
+    // Loaded model rigs (GLTF/FBX) need depthTest=false so spheres are visible
+    // through the mesh surface. Placeholder rig uses normal depth-tested materials.
+    const inactive = this._isGLTFRig ? JOINT_MATERIAL_OVERLAY         : JOINT_MATERIAL
+    const active   = this._isGLTFRig ? ACTIVE_JOINT_MATERIAL_OVERLAY   : ACTIVE_JOINT_MATERIAL
+    const selected = this._isGLTFRig ? SELECTED_JOINT_MATERIAL_OVERLAY : SELECTED_JOINT_MATERIAL
     for (const sphere of this.jointMeshes) {
       const name = sphere.userData.boneName as string
       if (name === this._selectedBone) {
-        sphere.material = SELECTED_JOINT_MATERIAL
+        sphere.material = selected
       } else {
-        sphere.material = this._isActive ? ACTIVE_JOINT_MATERIAL : JOINT_MATERIAL
+        sphere.material = this._isActive ? active : inactive
       }
     }
   }
@@ -425,6 +623,7 @@ export class CharacterManager {
   /**
    * Update outline thickness on all outline materials for this character.
    * Called when the ViewportPanel slider changes.
+   * Only has effect on the placeholder rig (GLTF uses its own materials).
    */
   setOutlineThickness(thickness: number): void {
     for (const mat of this.outlineMaterials) {
@@ -486,18 +685,23 @@ export class CharacterManager {
    */
   dispose(): void {
     this.scene.remove(this.group)
-    this.group.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) {
-        obj.geometry.dispose()
-        if (Array.isArray(obj.material)) {
-          obj.material.forEach((m) => m.dispose())
-        } else {
-          obj.material.dispose()
+    if (!this._isGLTFRig) {
+      // Dispose placeholder rig geometry and materials.
+      // For loaded model rigs we skip disposal since materials may be shared across instances.
+      this.group.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          obj.geometry.dispose()
+          if (Array.isArray(obj.material)) {
+            obj.material.forEach((m) => m.dispose())
+          } else {
+            obj.material.dispose()
+          }
         }
-      }
-    })
+      })
+    }
     this.boneNodeMap.clear()
     this.jointMeshes.length = 0
     this.outlineMaterials.length = 0
+    this._restPose.clear()
   }
 }

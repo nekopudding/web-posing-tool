@@ -92,28 +92,11 @@ const _dir = new THREE.Vector3()
 const _tip = new THREE.Vector3()
 
 // ---------------------------------------------------------------------------
-// Debug logging helpers — throttled to avoid spamming the console each frame.
-// ---------------------------------------------------------------------------
-
-const _logTimestamps: Record<string, number> = {}
-/** Log `msg` at most once every `intervalMs` ms per `key`. */
-function throttledLog(key: string, intervalMs: number, ...args: unknown[]): void {
-  const now = performance.now()
-  if ((now - (_logTimestamps[key] ?? 0)) >= intervalMs) {
-    _logTimestamps[key] = now
-    console.warn('[IKSolver]', ...args)
-  }
-}
-
-/** Returns true (and logs) if any joint in `joints` contains a NaN coordinate. */
-function hasNaNJoints(joints: IKJoint[], label: string): boolean {
+/** Returns true if any joint in `joints` contains a NaN coordinate. */
+function hasNaNJoints(joints: IKJoint[]): boolean {
   for (const j of joints) {
     const p = j.position
-    if (isNaN(p.x) || isNaN(p.y) || isNaN(p.z)) {
-      throttledLog(`nan-${label}-${j.boneName}`, 500,
-        `NaN position detected on bone "${j.boneName}" in "${label}"`, p)
-      return true
-    }
+    if (isNaN(p.x) || isNaN(p.y) || isNaN(p.z)) return true
   }
   return false
 }
@@ -125,8 +108,6 @@ function hasNaNJoints(joints: IKJoint[], label: string): boolean {
 export class IKSolver {
   /** Maximum solve iterations per frame. 10 converges well for ≤4-bone chains. */
   private maxIterations = 10
-  /** Counts applyToObjects calls for throttled debug logging. */
-  private _applyCallCount = 0
   /**
    * Distance tolerance (world units) — stop iterating when the tip is this
    * close to the target. 0.001 = 1 mm at 1 unit = 1 meter scale.
@@ -146,15 +127,9 @@ export class IKSolver {
     const n = joints.length
     if (n < 2) return true // Nothing to solve for a single joint.
 
-    const chainLabel = joints.map(j => j.boneName).join('→')
-
     // Guard: NaN input positions cause silent divergence.
-    if (hasNaNJoints(joints, chainLabel)) return false
-    if (isNaN(target.x) || isNaN(target.y) || isNaN(target.z)) {
-      throttledLog(`nan-target-${chainLabel}`, 500,
-        `NaN target passed to solve for chain "${chainLabel}"`, target)
-      return false
-    }
+    if (hasNaNJoints(joints)) return false
+    if (isNaN(target.x) || isNaN(target.y) || isNaN(target.z)) return false
 
     // Check reachability: if the target is farther than the total chain length,
     // stretch the chain straight toward the target (best we can do).
@@ -261,8 +236,6 @@ export class IKSolver {
    */
   applyToObjects(joints: IKJoint[], objects: THREE.Object3D[]): void {
     const n = joints.length
-    const shouldLog = this._applyCallCount % 30 === 0
-    this._applyCallCount++
 
     const parentWorldQ = new THREE.Quaternion()
     const invParentWorldQ = new THREE.Quaternion()
@@ -273,22 +246,13 @@ export class IKSolver {
     const currentDir = new THREE.Vector3()
     const swingQ = new THREE.Quaternion()
 
-    const chainLabel = joints.map(j => j.boneName).join('→')
-
     for (let i = 0; i < n - 1; i++) {
       const boneObj = objects[i]
       const childObj = objects[i + 1]
 
       // Direction this bone segment should point in world space (FABRIK result).
       _tip.subVectors(joints[i + 1].position, joints[i].position)
-      if (_tip.lengthSq() === 0) {
-        throttledLog(`degenerate-${chainLabel}-${i}`, 500,
-          `Degenerate (zero-length) bone segment between joints[${i}] "${joints[i].boneName}" and joints[${i+1}] "${joints[i+1].boneName}" — skipping rotation. Both positions:`,
-          joints[i].position.toArray().map(v => +v.toFixed(4)),
-          joints[i+1].position.toArray().map(v => +v.toFixed(4)),
-        )
-        continue
-      }
+      if (_tip.lengthSq() === 0) continue
       _tip.normalize()
 
       // Rest direction: the direction from boneObj's pivot to childObj's pivot
@@ -323,7 +287,6 @@ export class IKSolver {
       // replace the full quaternion and lose twist, which breaks non-identity
       // rest-pose bones (e.g. Mixamo FBX where each bone has a baked rest rotation).
       currentDir.copy(restDir).applyQuaternion(boneObj.quaternion)
-      const qBefore = boneObj.quaternion.clone()
       if (currentDir.lengthSq() > 1e-6) {
         swingQ.setFromUnitVectors(currentDir.normalize(), localAxis)
         boneObj.quaternion.premultiply(swingQ)
@@ -331,16 +294,6 @@ export class IKSolver {
         // Fallback for zero-length current direction (degenerate rest pose).
         localQ.setFromUnitVectors(restDir, localAxis)
         boneObj.quaternion.copy(localQ)
-      }
-      if (shouldLog) {
-        console.log(`[applyToObjects] bone[${i}] "${joints[i].boneName}"`,
-          '| matrixAutoUpdate:', boneObj.matrixAutoUpdate,
-          '| restDir:', restDir.toArray().map(v => +v.toFixed(3)),
-          '| localAxis:', localAxis.toArray().map(v => +v.toFixed(3)),
-          '| swingAngle°:', +(THREE.MathUtils.radToDeg(2 * Math.acos(Math.min(1, Math.abs(swingQ.w)))).toFixed(2)),
-          '| qBefore:', [qBefore.x, qBefore.y, qBefore.z, qBefore.w].map(v => +v.toFixed(3)),
-          '| qAfter:', [boneObj.quaternion.x, boneObj.quaternion.y, boneObj.quaternion.z, boneObj.quaternion.w].map(v => +v.toFixed(3)),
-        )
       }
       // Force the matrix to update immediately so subsequent bones in the
       // chain read the correct parent transform.
@@ -381,10 +334,7 @@ export class IKSolver {
     const objects: THREE.Object3D[] = []
     for (const boneName of chainDef.bones) {
       const obj = boneMap.get(boneName)
-      if (!obj) {
-        console.warn(`[IKSolver] Bone "${boneName}" not found in rig — chain "${chainDef.name}" disabled.`)
-        return null
-      }
+      if (!obj) return null
       objects.push(obj)
     }
     return objects

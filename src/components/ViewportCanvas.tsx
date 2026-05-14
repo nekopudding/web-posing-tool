@@ -128,8 +128,8 @@ export function ViewportCanvas() {
      * Falls back gracefully to the placeholder rig if loading fails.
      */
     const loadModelForCharacter = (mgr: CharacterManager) => {
-      mgr.loadGLTF('/models/Y Bot.glb').catch((err) => {
-        console.warn('[ViewportCanvas] GLB load failed, using placeholder rig:', err)
+      mgr.loadGLTF('/models/Y Bot.glb').catch(() => {
+        // Falls back to placeholder rig silently
       })
     }
 
@@ -268,6 +268,17 @@ export function ViewportCanvas() {
       (enabled) => grid.setVisible(enabled)
     )
 
+    // 4b. Gizmo (joint sphere + transform handles) visibility
+    const unsubGizmos = useSceneStore.subscribe(
+      (state) => state.viewport.showGizmos,
+      (show) => {
+        for (const mgr of charManagersRef.current.values()) {
+          mgr.setGizmosVisible(show)
+        }
+        gizmo.transformGizmo.setGizmosVisible(show)
+      }
+    )
+
     // 5. Outline thickness
     const unsubOutline = useSceneStore.subscribe(
       (state) => state.viewport.outlineThickness,
@@ -341,6 +352,7 @@ export function ViewportCanvas() {
       unsubTransform()
       unsubActive()
       unsubGrid()
+      unsubGizmos()
       unsubOutline()
       unsubBg()
       unsubFov()

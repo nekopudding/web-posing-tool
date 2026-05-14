@@ -79,18 +79,6 @@ import { useSceneStore, type PoseState } from '../store/useSceneStore'
 /** Movement threshold in pixels below which a pointerdown+up is a click. */
 const CLICK_THRESHOLD = 5
 
-// ---------------------------------------------------------------------------
-// Debug logging helpers
-// ---------------------------------------------------------------------------
-const _gcLogTs: Record<string, number> = {}
-function throttledWarn(key: string, intervalMs: number, ...args: unknown[]): void {
-  const now = performance.now()
-  if ((now - (_gcLogTs[key] ?? 0)) >= intervalMs) {
-    _gcLogTs[key] = now
-    console.log('[GizmoController]', ...args)
-  }
-}
-
 // --------------------------------------------------------------------------
 // DragState — only non-null during an active drag
 // --------------------------------------------------------------------------
@@ -216,9 +204,6 @@ export class GizmoController {
   private _hitPoint = new THREE.Vector3()
   private _tempVec = new THREE.Vector3()
   private _parentWorldQ = new THREE.Quaternion()
-  /** Frame counter for throttled debug logging; reset on each drag start. */
-  private _debugFrame = 0
-
   constructor(
     canvas: HTMLCanvasElement,
     sceneManager: SceneManager,
@@ -307,18 +292,11 @@ export class GizmoController {
   private _updateIKFreeDrag(): void {
     const ds = this.dragState!
     const { joints, boneLengths, dragPlane, charMgr } = ds
-    if (!joints || !boneLengths || !dragPlane) {
-      console.warn('[IK update] DragState incomplete — joints:', !!joints, 'boneLengths:', !!boneLengths, 'dragPlane:', !!dragPlane)
-      return
-    }
+    if (!joints || !boneLengths || !dragPlane) return
 
     this.raycaster.setFromCamera(this.ndc, this.sceneManager.camera)
     const hit = this.raycaster.ray.intersectPlane(dragPlane, this._targetPos)
-    if (!hit) {
-      throttledWarn(`plane-miss-${ds.effectorBoneName}`, 500,
-        `Drag plane miss for "${ds.effectorBoneName}" — ray parallel to plane? ndc=${JSON.stringify(this.ndc)}, planeNormal=${dragPlane.normal.toArray().map(v => +v.toFixed(3))}`)
-      return
-    }
+    if (!hit) return
 
     ds.currentTarget!.copy(this._targetPos)
 
@@ -329,27 +307,9 @@ export class GizmoController {
     const chain = chainName ? findChainByName(chainName) : IK_CHAINS.find(
       (c) => c.bones[c.bones.length - 1] === ds.effectorBoneName
     )
-    if (!chain) {
-      console.warn('[IK update] no chain found for', ds.effectorBoneName)
-      return
-    }
+    if (!chain) return
     const objects = charMgr.getChainObjects(chain.bones)
-    if (!objects) {
-      console.warn('[IK update] getChainObjects returned null for chain', chain.bones)
-      return
-    }
-
-    // Track upper_arm.L quaternion + world pos every frame (first 5) to see if cascade changes persist.
-    if (this._debugFrame < 5) {
-      const upperArm = ds.charMgr.getBoneNode('upper_arm.L')
-      if (upperArm) {
-        const _p = new THREE.Vector3()
-        upperArm.getWorldPosition(_p)
-        console.log('[FRAME', this._debugFrame, 'pre-refresh upper_arm.L] q:',
-          [upperArm.quaternion.x, upperArm.quaternion.y, upperArm.quaternion.z, upperArm.quaternion.w].map(v => +v.toFixed(5)),
-          '| worldPos:', _p.toArray().map(v => +v.toFixed(4)))
-      }
-    }
+    if (!objects) return
 
     // Refresh ds.joints world positions from actual Three.js objects each frame.
     // When _solveFullBodyCascade ran in the previous frame it moved the shoulder's
@@ -370,59 +330,18 @@ export class GizmoController {
     const totalArmLength = boneLengths.reduce((a, b) => a + b, 0)
     const armReachable = joints[0].position.distanceTo(this._targetPos) <= totalArmLength
 
-    if (this._debugFrame % 30 === 0) {
-      console.log('[IK update frame', this._debugFrame, ']',
-        'target:', this._targetPos.toArray().map(v => +v.toFixed(3)),
-        '| joints:', joints.map(j => j.position.toArray().map(v => +v.toFixed(3))),
-        '| armReachable:', armReachable,
-      )
-    }
-
     let converged: boolean
     if (!armReachable && ds.savedFootPosL && ds.savedFootPosR) {
       converged = false // cascade handles the full chain below
     } else {
       converged = this.solver.solve(joints, this._targetPos, boneLengths)
       this.solver.applyToObjects(joints, objects)
-      // Frame 0: verify whether applyToObjects immediately moved the bone.
-      if (this._debugFrame === 0) {
-        const _checkPos = new THREE.Vector3()
-        objects[1].getWorldPosition(_checkPos)
-        console.log('[FRAME 0 post-apply] upper_arm world:', _checkPos.toArray().map(v => +v.toFixed(4)),
-          '| quaternion:', [objects[1].quaternion.x, objects[1].quaternion.y, objects[1].quaternion.z, objects[1].quaternion.w].map(v => +v.toFixed(4)))
-      }
     }
-
-    if (this._debugFrame % 30 === 0) {
-      console.log('[IK solve result] converged:', converged,
-        '| joints after:', joints.map(j => j.position.toArray().map(v => +v.toFixed(3))),
-      )
-    }
-    this._debugFrame++
 
     // Full-body cascade: when the arm/chest chain can't reach, bend the spine
     // and re-pin feet at their pre-drag world positions.
     if (!converged && ds.savedFootPosL && ds.savedFootPosR) {
       this._solveFullBodyCascade(ds, this._targetPos)
-      // Log arm bones immediately after cascade (first 2 frames).
-      if (this._debugFrame <= 2) {
-        const upperArm = ds.charMgr.getBoneNode('upper_arm.L')
-        const forearm = ds.charMgr.getBoneNode('forearm.L')
-        if (upperArm) {
-          const _p = new THREE.Vector3()
-          upperArm.getWorldPosition(_p)
-          console.log('[FRAME', this._debugFrame - 1, 'post-cascade upper_arm.L] q:',
-            [upperArm.quaternion.x, upperArm.quaternion.y, upperArm.quaternion.z, upperArm.quaternion.w].map(v => +v.toFixed(5)),
-            '| worldPos:', _p.toArray().map(v => +v.toFixed(4)))
-        }
-        if (forearm) {
-          const _p = new THREE.Vector3()
-          forearm.getWorldPosition(_p)
-          console.log('[FRAME', this._debugFrame - 1, 'post-cascade forearm.L] q:',
-            [forearm.quaternion.x, forearm.quaternion.y, forearm.quaternion.z, forearm.quaternion.w].map(v => +v.toFixed(5)),
-            '| worldPos:', _p.toArray().map(v => +v.toFixed(4)))
-        }
-      }
     }
   }
 
@@ -712,14 +631,6 @@ export class GizmoController {
     const joints = this.solver.extractJoints(objects, chain.bones)
     const boneLengths = this.solver.computeBoneLengths(objects)
     hitObj.getWorldPosition(this._worldPos)
-
-    this._debugFrame = 0
-    console.log('[IK drag start]', boneName,
-      '| chain bones:', chain.bones,
-      '| objects resolved:', objects.length,
-      '| joints:', joints.map(j => ({ bone: j.boneName, pos: j.position.toArray().map(v => +v.toFixed(3)) })),
-      '| boneLengths:', boneLengths.map(l => +l.toFixed(4)),
-    )
 
     // Snapshot foot positions for cascading IK foot-lock if configured.
     let savedFootPosL: THREE.Vector3 | undefined

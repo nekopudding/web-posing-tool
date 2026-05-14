@@ -94,12 +94,16 @@ const JOINT_MATERIAL = new THREE.MeshStandardMaterial({
   emissive: 0x222244,
   roughness: 0.6,
   metalness: 0.1,
+  transparent: true,
+  opacity: 0.55,
 })
 const ACTIVE_JOINT_MATERIAL = new THREE.MeshStandardMaterial({
   color: 0xff8844,
   emissive: 0x441100,
   roughness: 0.4,
   metalness: 0.2,
+  transparent: true,
+  opacity: 0.55,
 })
 const BONE_MATERIAL = new THREE.MeshStandardMaterial({
   color: 0x6688cc,
@@ -115,6 +119,8 @@ const SELECTED_JOINT_MATERIAL = new THREE.MeshStandardMaterial({
   emissive: 0x886600,
   roughness: 0.2,
   metalness: 0.3,
+  transparent: true,
+  opacity: 0.75,
 })
 
 /**
@@ -458,12 +464,10 @@ export class CharacterManager {
       if ((obj as THREE.Bone).isBone) allBones.set(obj.name, obj)
     })
 
-    const boneNames = [...allBones.keys()]
-    console.log('[CharacterManager] GLB bones found:', boneNames)
-
     // Detect Mixamo prefix — same logic as loadFBX.
     // Blender preserves the original FBX bone names including "mixamorig:" or "mixamorig".
     // Some exporters replace the colon with an underscore; handle both.
+    const boneNames = [...allBones.keys()]
     let prefix = ''
     if (boneNames.some(n => n.startsWith('mixamorig:'))) {
       prefix = 'mixamorig:'
@@ -475,11 +479,7 @@ export class CharacterManager {
     // Populate boneNodeMap using the Mixamo base name mapping.
     for (const [ourName, baseName] of Object.entries(MIXAMO_BONE_MAP) as [BoneName, string][]) {
       const bone = allBones.get(prefix + baseName)
-      if (bone) {
-        this.boneNodeMap.set(ourName, bone)
-      } else {
-        console.warn(`[CharacterManager] GLB bone "${prefix + baseName}" not found for "${ourName}"`)
-      }
+      if (bone) this.boneNodeMap.set(ourName, bone)
     }
 
     // Capture rest-pose quaternions before adding hitbox spheres.
@@ -527,7 +527,6 @@ export class CharacterManager {
    * @param pose  Map of boneName → SerializedQuaternion {x,y,z,w}
    */
   applyPoseState(pose: PoseState): void {
-    console.trace('[applyPoseState called]')
     for (const [boneName, q] of Object.entries(pose)) {
       const node = this.boneNodeMap.get(boneName as BoneName)
       if (!node) continue
@@ -638,6 +637,12 @@ export class CharacterManager {
    */
   setLayerVisibility(vis: LayerVisibility): void {
     this.group.visible = vis.skin || vis.muscle || vis.bone
+  }
+
+  setGizmosVisible(visible: boolean): void {
+    for (const sphere of this.jointMeshes) {
+      sphere.visible = visible
+    }
   }
 
   /**

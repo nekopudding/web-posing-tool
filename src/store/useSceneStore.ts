@@ -110,6 +110,8 @@ export interface ViewportState {
   outlineThickness: number
   /** CSS color string for the renderer's clear color. */
   backgroundColor: string
+  /** Whether joint sphere gizmos are visible in the viewport. */
+  showGizmos: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -195,6 +197,7 @@ export interface SceneState {
   setGridEnabled: (v: boolean) => void
   setOutlineThickness: (v: number) => void
   setBackgroundColor: (color: string) => void
+  setShowGizmos: (v: boolean) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -248,6 +251,7 @@ export const useSceneStore = create<SceneState>()(
       gridEnabled: true,
       outlineThickness: 0.012,
       backgroundColor: '#1a1a2e',
+      showGizmos: true,
     },
     undoStack: [],
     redoStack: [],
@@ -414,5 +418,8 @@ export const useSceneStore = create<SceneState>()(
 
     setBackgroundColor: (backgroundColor) =>
       set((state) => ({ viewport: { ...state.viewport, backgroundColor } })),
+
+    setShowGizmos: (showGizmos) =>
+      set((state) => ({ viewport: { ...state.viewport, showGizmos } })),
   }))
 )

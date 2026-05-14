@@ -17,9 +17,11 @@ export function ViewportPanel() {
   const gridEnabled = useSceneStore((s) => s.viewport.gridEnabled)
   const outlineThickness = useSceneStore((s) => s.viewport.outlineThickness)
   const backgroundColor = useSceneStore((s) => s.viewport.backgroundColor)
+  const showGizmos = useSceneStore((s) => s.viewport.showGizmos)
   const setGridEnabled = useSceneStore((s) => s.setGridEnabled)
   const setOutlineThickness = useSceneStore((s) => s.setOutlineThickness)
   const setBackgroundColor = useSceneStore((s) => s.setBackgroundColor)
+  const setShowGizmos = useSceneStore((s) => s.setShowGizmos)
 
   const handleExportPNG = () => {
     // Access the renderer via the scene store subscription pattern is complex here;
@@ -54,6 +56,17 @@ export function ViewportPanel() {
             onChange={(e) => setGridEnabled(e.target.checked)}
           />
           <label htmlFor="grid-toggle">Show Grid</label>
+        </div>
+
+        {/* Gizmo toggle */}
+        <div className={panelStyles.checkRow}>
+          <input
+            type="checkbox"
+            id="gizmos-toggle"
+            checked={showGizmos}
+            onChange={(e) => setShowGizmos(e.target.checked)}
+          />
+          <label htmlFor="gizmos-toggle">Show Gizmos</label>
         </div>
 
         {/* Outline thickness */}

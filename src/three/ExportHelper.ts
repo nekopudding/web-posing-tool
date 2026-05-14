@@ -22,10 +22,7 @@ export class ExportHelper {
    */
   exportPNG(renderer: THREE.WebGLRenderer, filename = 'pose-ref'): void {
     renderer.domElement.toBlob((blob) => {
-      if (!blob) {
-        console.error('[ExportHelper] Canvas toBlob returned null — is preserveDrawingBuffer enabled?')
-        return
-      }
+      if (!blob) return
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -42,7 +39,6 @@ export class ExportHelper {
    */
   async copyToClipboard(renderer: THREE.WebGLRenderer): Promise<void> {
     if (!navigator.clipboard || !window.ClipboardItem) {
-      console.warn('[ExportHelper] Clipboard API not available — falling back to PNG download.')
       this.exportPNG(renderer, 'pose-ref-clipboard')
       return
     }
@@ -56,8 +52,8 @@ export class ExportHelper {
       await navigator.clipboard.write([
         new ClipboardItem({ 'image/png': blob }),
       ])
-    } catch (err) {
-      console.error('[ExportHelper] Clipboard write failed:', err)
+    } catch {
+      // Clipboard write failed silently
     }
   }
 
@@ -91,7 +87,6 @@ export class ExportHelper {
           const parsed = JSON.parse(e.target?.result as string) as Character[]
           resolve(Array.isArray(parsed) ? parsed : null)
         } catch {
-          console.error('[ExportHelper] Failed to parse pose JSON')
           resolve(null)
         }
       }

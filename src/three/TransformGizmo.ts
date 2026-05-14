@@ -126,6 +126,8 @@ export class TransformGizmo {
 
   /** The Three.js node the gizmo is attached to, or null if detached. */
   private attachedNode: THREE.Object3D | null = null
+  /** When false, attach() will not show the group and setGizmosVisible(false) hides it. */
+  private _gizmosVisible = true
 
   private scene: THREE.Scene
 
@@ -240,7 +242,7 @@ export class TransformGizmo {
    */
   attach(boneNode: THREE.Object3D, showTranslate: boolean, showRotate: boolean): void {
     this.attachedNode = boneNode
-    this.group.visible = true
+    this.group.visible = this._gizmosVisible
 
     // Show/hide rings and arrows based on per-bone config
     this.ringX.visible = showRotate
@@ -261,6 +263,13 @@ export class TransformGizmo {
   detach(): void {
     this.attachedNode = null
     this.group.visible = false
+  }
+
+  /** Show or hide the gizmo group globally. When hidden, attach() won't re-show it. */
+  setGizmosVisible(visible: boolean): void {
+    this._gizmosVisible = visible
+    // Only touch group.visible if attached; detach() already hides it.
+    if (this.attachedNode) this.group.visible = visible
   }
 
   // --------------------------------------------------------------------------

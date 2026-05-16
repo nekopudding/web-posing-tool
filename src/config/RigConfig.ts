@@ -56,6 +56,26 @@ export interface BoneConfig {
   gizmoTranslate: boolean
 }
 
+/**
+ * Angle constraint for a hinge joint in an IK chain.
+ * Applied after each FABRIK backward pass to prevent hyperextension.
+ *
+ * `jointIndex` refers to the constrained joint's index in the chain's bones array.
+ *
+ * Angle convention (signed, via atan2):
+ *   0°            = joint is straight (hyperextension boundary)
+ *   positive      = joint bending in the valid direction
+ *   negative      = hyperextension (joint bending the wrong way) — always clamped out
+ *   maxAngleDeg   = maximum allowed bend (e.g. 170° prevents over-folding)
+ */
+export interface JointConstraint {
+  type: 'hinge'
+  /** Index of the constrained joint within the chain's bones array (1-based interior only). */
+  jointIndex: number
+  /** Maximum allowed bend angle in degrees. 0° is straight; negative angles are hyperextension. */
+  maxAngleDeg: number
+}
+
 export interface IKChainConfig {
   /** Unique identifier used by BoneConfig.chain to reference this chain. */
   name: string
@@ -64,6 +84,11 @@ export interface IKChainConfig {
    * FABRIK pins bones[0] and drives bones[last] toward the target.
    */
   bones: string[]
+  /**
+   * Optional per-joint angle constraints for this chain.
+   * Applied inside the FABRIK loop after each backward pass.
+   */
+  constraints?: JointConstraint[]
 }
 
 export interface RigConfig {

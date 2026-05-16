@@ -1,10 +1,26 @@
 {
   "version": "1",
   "ikChains": [
-    { "name": "arm.L",       "bones": ["shoulder.L", "upper_arm.L", "forearm.L", "hand.L"] },
-    { "name": "arm.R",       "bones": ["shoulder.R", "upper_arm.R", "forearm.R", "hand.R"] },
-    { "name": "leg.L",       "bones": ["upper_leg.L", "lower_leg.L", "foot.L"] },
-    { "name": "leg.R",       "bones": ["upper_leg.R", "lower_leg.R", "foot.R"] },
+    {
+      "name": "arm.L",
+      "bones": ["shoulder.L", "upper_arm.L", "forearm.L", "hand.L"],
+      "constraints": [{ "type": "hinge", "jointIndex": 2, "maxAngleDeg": 170 }]
+    },
+    {
+      "name": "arm.R",
+      "bones": ["shoulder.R", "upper_arm.R", "forearm.R", "hand.R"],
+      "constraints": [{ "type": "hinge", "jointIndex": 2, "maxAngleDeg": 170 }]
+    },
+    {
+      "name": "leg.L",
+      "bones": ["upper_leg.L", "lower_leg.L", "foot.L"],
+      "constraints": [{ "type": "hinge", "jointIndex": 1, "maxAngleDeg": 170 }]
+    },
+    {
+      "name": "leg.R",
+      "bones": ["upper_leg.R", "lower_leg.R", "foot.R"],
+      "constraints": [{ "type": "hinge", "jointIndex": 1, "maxAngleDeg": 170 }]
+    },
     { "name": "neck_head",   "bones": ["neck", "head"] },
     { "name": "spine_chain", "bones": ["hips", "spine", "spine_upper", "chest"] }
   ],

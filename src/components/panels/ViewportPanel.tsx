@@ -18,10 +18,12 @@ export function ViewportPanel() {
   const outlineThickness = useSceneStore((s) => s.viewport.outlineThickness)
   const backgroundColor = useSceneStore((s) => s.viewport.backgroundColor)
   const showGizmos = useSceneStore((s) => s.viewport.showGizmos)
+  const constraintsEnabled = useSceneStore((s) => s.viewport.constraintsEnabled)
   const setGridEnabled = useSceneStore((s) => s.setGridEnabled)
   const setOutlineThickness = useSceneStore((s) => s.setOutlineThickness)
   const setBackgroundColor = useSceneStore((s) => s.setBackgroundColor)
   const setShowGizmos = useSceneStore((s) => s.setShowGizmos)
+  const setConstraintsEnabled = useSceneStore((s) => s.setConstraintsEnabled)
 
   const handleExportPNG = () => {
     // Access the renderer via the scene store subscription pattern is complex here;
@@ -67,6 +69,17 @@ export function ViewportPanel() {
             onChange={(e) => setShowGizmos(e.target.checked)}
           />
           <label htmlFor="gizmos-toggle">Show Gizmos</label>
+        </div>
+
+        {/* Joint constraints toggle */}
+        <div className={panelStyles.checkRow}>
+          <input
+            type="checkbox"
+            id="constraints-toggle"
+            checked={constraintsEnabled}
+            onChange={(e) => setConstraintsEnabled(e.target.checked)}
+          />
+          <label htmlFor="constraints-toggle">Joint Constraints</label>
         </div>
 
         {/* Outline thickness */}

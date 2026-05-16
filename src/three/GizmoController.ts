@@ -74,6 +74,7 @@ import type { CharacterManager } from './CharacterManager'
 import { IKSolver, type IKJoint } from './IKSolver'
 import { IK_CHAINS, RIG_CONFIG, findChainByName, type BoneName } from './IKChains'
 import { TransformGizmo, type GizmoHandleType } from './TransformGizmo'
+import { ConstraintSystem } from './ConstraintSystem'
 import { useSceneStore, type PoseState } from '../store/useSceneStore'
 
 /** Movement threshold in pixels below which a pointerdown+up is a click. */
@@ -109,6 +110,10 @@ interface DragState {
   /** Camera-facing plane through the joint world position. */
   dragPlane?: THREE.Plane
   currentTarget?: THREE.Vector3
+  /** IK chain name — used to look up constraints in ConstraintSystem. */
+  chainName?: string
+  /** Hinge constraint callback created once at drag start; passed to IKSolver.solve each frame. */
+  hingeCallback?: (joints: IKJoint[], boneLengths: number[]) => void
 
   // ---- IK-inner fields (mode === 'ik-inner') ----
   // joints/boneLengths/dragPlane/currentTarget are reused from IK-free fields.
@@ -174,6 +179,9 @@ export class GizmoController {
   private solver = new IKSolver()
   private raycaster = new THREE.Raycaster()
 
+  /** Manages hinge angle constraints and collision proxy push-out. */
+  private constraintSystem: ConstraintSystem
+
   /** The transform gizmo — shows handles around the selected joint. */
   readonly transformGizmo: TransformGizmo
 
@@ -215,6 +223,8 @@ export class GizmoController {
     this.controls = sceneManager.controls
     this.onPoseChange = onPoseChange
     this.onBoneSelect = onBoneSelect
+
+    this.constraintSystem = new ConstraintSystem(RIG_CONFIG)
 
     this.transformGizmo = new TransformGizmo(sceneManager.scene)
 
@@ -298,18 +308,18 @@ export class GizmoController {
     const hit = this.raycaster.ray.intersectPlane(dragPlane, this._targetPos)
     if (!hit) return
 
-    ds.currentTarget!.copy(this._targetPos)
-
     // Look up chain from config (works for all effectors including head, chest).
     // Moved before the solve so objects are available for the joint refresh below.
     const boneConfig = RIG_CONFIG.bones[ds.effectorBoneName]
-    const chainName = boneConfig?.chain
+    const chainName = ds.chainName ?? boneConfig?.chain
     const chain = chainName ? findChainByName(chainName) : IK_CHAINS.find(
       (c) => c.bones[c.bones.length - 1] === ds.effectorBoneName
     )
     if (!chain) return
     const objects = charMgr.getChainObjects(chain.bones)
     if (!objects) return
+
+    ds.currentTarget!.copy(this._targetPos)
 
     // Refresh ds.joints world positions from actual Three.js objects each frame.
     // When _solveFullBodyCascade ran in the previous frame it moved the shoulder's
@@ -334,7 +344,7 @@ export class GizmoController {
     if (!armReachable && ds.savedFootPosL && ds.savedFootPosR) {
       converged = false // cascade handles the full chain below
     } else {
-      converged = this.solver.solve(joints, this._targetPos, boneLengths)
+      converged = this.solver.solve(joints, this._targetPos, boneLengths, ds.hingeCallback)
       this.solver.applyToObjects(joints, objects)
     }
 
@@ -632,6 +642,19 @@ export class GizmoController {
     const boneLengths = this.solver.computeBoneLengths(objects)
     hitObj.getWorldPosition(this._worldPos)
 
+    // Capture hinge-plane normal at drag start so the elbow/knee stays in its
+    // current bend plane throughout the drag (prevents plane-flip when limb
+    // passes through a nearly-straight configuration).
+    this.constraintSystem.captureHingePlane(chain.name, joints, this.sceneManager.camera)
+
+    // Build the hinge constraint callback once here (not per-frame) to avoid
+    // allocating a new closure on every frame inside _updateIKFreeDrag.
+    const chainNameForCallback = chain.name
+    const constraintsEnabled = useSceneStore.getState().viewport.constraintsEnabled
+    const hingeCallback = constraintsEnabled
+      ? (j: IKJoint[], bl: number[]) => this.constraintSystem.applyHingeConstraints(j, bl, chainNameForCallback)
+      : undefined
+
     // Snapshot foot positions for cascading IK foot-lock if configured.
     let savedFootPosL: THREE.Vector3 | undefined
     let savedFootPosR: THREE.Vector3 | undefined
@@ -653,6 +676,8 @@ export class GizmoController {
       boneLengths,
       dragPlane: this._buildCameraPlane(this._worldPos),
       currentTarget: this._worldPos.clone(),
+      chainName: chain.name,
+      hingeCallback,
       savedFootPosL,
       savedFootPosR,
     }
@@ -873,6 +898,11 @@ export class GizmoController {
     }
     // If it was a click (moved < threshold): onBoneSelect was already called on pointerdown.
 
+    // Clear stored hinge-plane normal for this drag's chain.
+    if (this.dragState.chainName) {
+      this.constraintSystem.clearHingePlane(this.dragState.chainName)
+    }
+
     this.transformGizmo.setActiveHandle(null)
     this.canvas.releasePointerCapture(e.pointerId)
     this.controls.enabled = true
@@ -912,6 +942,7 @@ export class GizmoController {
     this.canvas.removeEventListener('pointermove', this._onPointerMove)
     this.canvas.removeEventListener('pointerup', this._onPointerUp)
     this.transformGizmo.dispose()
+    this.constraintSystem.dispose()
     this.characters.clear()
   }
 }

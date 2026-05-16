@@ -112,6 +112,11 @@ export interface ViewportState {
   backgroundColor: string
   /** Whether joint sphere gizmos are visible in the viewport. */
   showGizmos: boolean
+  /**
+   * When true, joint angle limits are enforced during IK drags.
+   * When false, posing is unconstrained.
+   */
+  constraintsEnabled: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -198,6 +203,7 @@ export interface SceneState {
   setOutlineThickness: (v: number) => void
   setBackgroundColor: (color: string) => void
   setShowGizmos: (v: boolean) => void
+  setConstraintsEnabled: (v: boolean) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +258,7 @@ export const useSceneStore = create<SceneState>()(
       outlineThickness: 0.012,
       backgroundColor: '#1a1a2e',
       showGizmos: true,
+      constraintsEnabled: true,
     },
     undoStack: [],
     redoStack: [],
@@ -421,5 +428,8 @@ export const useSceneStore = create<SceneState>()(
 
     setShowGizmos: (showGizmos) =>
       set((state) => ({ viewport: { ...state.viewport, showGizmos } })),
+
+    setConstraintsEnabled: (constraintsEnabled) =>
+      set((state) => ({ viewport: { ...state.viewport, constraintsEnabled } })),
   }))
 )

@@ -136,3 +136,6 @@ pnpm preview    # preview the production build
 - [ ] Blender — bone rename, shape keys, layer meshes, GLB export → `public/models/humanoid.glb`
 - [ ] Phase 4 — GLTF loaded, `CharacterManager.loadGLTF()`, morph targets
 - [ ] Phase 5 — Export pose JSON, mirror pose, pose save/load, character rename
+
+NEXT 
+- add lightsource and ambient light - user can adjust angle from the model by rotating it around the model, distance

@@ -117,13 +117,23 @@ export class IKSolver {
   /**
    * Solve the IK chain so that `joints[last]` reaches `target`.
    *
-   * @param joints      Array of IKJoint objects; positions are mutated in place.
-   * @param target      Desired world-space position of the end effector.
-   * @param boneLengths Array of lengths where boneLengths[i] = distance between
-   *                    joints[i] and joints[i+1]. Length = joints.length - 1.
+   * @param joints               Array of IKJoint objects; positions are mutated in place.
+   * @param target               Desired world-space position of the end effector.
+   * @param boneLengths          Array of lengths where boneLengths[i] = distance between
+   *                             joints[i] and joints[i+1]. Length = joints.length - 1.
+   * @param onAfterBackwardPass  Optional callback invoked at the end of each backward
+   *                             pass with the current joint positions and bone lengths.
+   *                             Use this to apply joint angle constraints (e.g. hinge
+   *                             limits) inside the FABRIK loop so corrections converge
+   *                             alongside the solve rather than requiring a second pass.
    * @returns true if the tip converged within `tolerance` of the target.
    */
-  solve(joints: IKJoint[], target: THREE.Vector3, boneLengths: number[]): boolean {
+  solve(
+    joints: IKJoint[],
+    target: THREE.Vector3,
+    boneLengths: number[],
+    onAfterBackwardPass?: (joints: IKJoint[], boneLengths: number[]) => void,
+  ): boolean {
     const n = joints.length
     if (n < 2) return true // Nothing to solve for a single joint.
 
@@ -184,6 +194,11 @@ export class IKSolver {
 
         joints[i].position.copy(joints[i - 1].position).addScaledVector(_dir, boneLengths[i - 1])
       }
+
+      // Apply optional joint constraints (e.g. hinge angle limits) after the
+      // backward pass. Corrections are small, so FABRIK converges to the
+      // constrained pose within the existing maxIterations budget.
+      if (onAfterBackwardPass) onAfterBackwardPass(joints, boneLengths)
     }
 
     return joints[n - 1].position.distanceTo(target) < this.tolerance

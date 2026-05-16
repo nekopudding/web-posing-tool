@@ -128,7 +128,14 @@ export function ViewportCanvas() {
      * Falls back gracefully to the placeholder rig if loading fails.
      */
     const loadModelForCharacter = (mgr: CharacterManager) => {
-      mgr.loadGLTF('/models/Y Bot.glb').catch(() => {
+      mgr.loadGLTF('/models/Y Bot.glb').then(() => {
+        // Re-apply the store pose after the GLB finishes loading.
+        // If setBulkPose was called before the skeleton was ready (e.g. when loading
+        // a saved scene that added new characters), applyPoseState was a no-op because
+        // boneNodeMap was empty. Now that bones exist, apply the current store pose.
+        const char = useSceneStore.getState().characters.find((c) => c.id === mgr.characterId)
+        if (char) mgr.applyPoseState(char.pose)
+      }).catch(() => {
         // Falls back to placeholder rig silently
       })
     }

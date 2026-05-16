@@ -1,7 +1,6 @@
 import { ViewportCanvas } from './components/ViewportCanvas'
 import { CharacterRoster } from './components/panels/CharacterRoster'
-import { BodyTypePanel } from './components/panels/BodyTypePanel'
-import { LayerPanel } from './components/panels/LayerPanel'
+import { PoseLibraryPanel } from './components/panels/PoseLibraryPanel'
 import { CameraPanel } from './components/panels/CameraPanel'
 import { ViewportPanel } from './components/panels/ViewportPanel'
 import { ControlsPanel } from './components/panels/ControlsPanel'
@@ -24,8 +23,7 @@ function App() {
       </div>
       <aside className={styles.sidebar}>
         <CharacterRoster />
-        <BodyTypePanel />
-        <LayerPanel />
+        <PoseLibraryPanel />
         <CameraPanel />
         <ViewportPanel />
         <ControlsPanel />

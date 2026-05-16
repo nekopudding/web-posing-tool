@@ -184,6 +184,12 @@ export interface SceneState {
   /** Re-apply the most recently undone state from redoStack. */
   redo: () => void
 
+  /**
+   * Wipe the entire scene and start fresh with one default character.
+   * Clears undo/redo stacks — this is intentionally not undoable.
+   */
+  resetScene: () => void
+
   // --- Body type actions ---
   updateMorph: (characterId: string, key: keyof MorphWeights, value: number) => void
 
@@ -239,14 +245,30 @@ function makeCharacter(index: number): Character {
   }
 }
 
+const LOCALSTORAGE_KEY = 'pose-tool-characters'
+
+/** Load persisted characters from localStorage, or fall back to a single default character. */
+function loadPersistedCharacters(): Character[] {
+  try {
+    const raw = localStorage.getItem(LOCALSTORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Character[]
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed
+    }
+  } catch {
+    // Ignore parse/storage errors — start fresh.
+  }
+  return [makeCharacter(0)]
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
 
 export const useSceneStore = create<SceneState>()(
   subscribeWithSelector((set, get) => ({
-    // Initial state — one character already in the scene
-    characters: [makeCharacter(0)],
+    // Initial state — restore from localStorage if available, else one default character.
+    characters: loadPersistedCharacters(),
     activeCharacterId: null,
     selectedBoneName: null,
     camera: {
@@ -371,6 +393,15 @@ export const useSceneStore = create<SceneState>()(
 
     // ---- Body type actions ----
 
+    resetScene: () =>
+      set(() => ({
+        characters: [makeCharacter(0)],
+        activeCharacterId: null,
+        selectedBoneName: null,
+        undoStack: [],
+        redoStack: [],
+      })),
+
     updateMorph: (characterId, key, value) =>
       set((state) => ({
         characters: state.characters.map((c) =>
@@ -432,4 +463,17 @@ export const useSceneStore = create<SceneState>()(
     setConstraintsEnabled: (constraintsEnabled) =>
       set((state) => ({ viewport: { ...state.viewport, constraintsEnabled } })),
   }))
+)
+
+// Persist characters (poses, world positions, morph weights, etc.) to localStorage
+// on every change so the pose survives a page refresh.
+useSceneStore.subscribe(
+  (state) => state.characters,
+  (characters) => {
+    try {
+      localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(characters))
+    } catch {
+      // Ignore quota / security errors.
+    }
+  }
 )

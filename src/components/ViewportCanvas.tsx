@@ -82,6 +82,17 @@ const GIZMO_ROTATE_SET = new Set<string>(
     .map(([name]) => name)
 )
 
+/**
+ * Per-bone single-axis rotation constraint for the gizmo.
+ * When set, only the ring for this axis is shown (instead of all three).
+ * Derived from rig-config.json — set rotateConstraintAxis on a bone to enable.
+ */
+const GIZMO_CONSTRAINT_AXIS_MAP = new Map<string, 'x' | 'y' | 'z'>(
+  Object.entries(RIG_CONFIG.bones)
+    .filter(([, cfg]) => cfg.rotateConstraintAxis)
+    .map(([name, cfg]) => [name, cfg.rotateConstraintAxis!])
+)
+
 export function ViewportCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -258,7 +269,8 @@ export function ViewportCanvas() {
           if (boneNode) {
             const showTranslate = GIZMO_TRANSLATE_SET.has(bone)
             const showRotate = GIZMO_ROTATE_SET.has(bone)
-            gizmo.transformGizmo.attach(boneNode, showTranslate, showRotate)
+            const constraintAxis = GIZMO_CONSTRAINT_AXIS_MAP.get(bone)
+            gizmo.transformGizmo.attach(boneNode, showTranslate, showRotate, constraintAxis)
           }
         } else {
           gizmo.transformGizmo.detach()

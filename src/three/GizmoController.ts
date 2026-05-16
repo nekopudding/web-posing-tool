@@ -580,7 +580,11 @@ export class GizmoController {
 
     this.raycaster.setFromCamera(this.ndc, this.sceneManager.camera)
     const hits = this.raycaster.intersectObjects(allJoints, false)
-    if (hits.length === 0) return
+    if (hits.length === 0) {
+      // Clicked empty space — deselect current joint.
+      useSceneStore.getState().selectBone(null)
+      return
+    }
 
     const hitObj = hits[0].object
     const boneName = hitObj.userData.boneName as BoneName
@@ -786,16 +790,24 @@ export class GizmoController {
     boneNode.getWorldPosition(this._worldPos)
     const jointPos = this._worldPos.clone()
 
-    // Determine the axis vector from the handle type
-    const axisMap: Record<string, THREE.Vector3> = {
-      'rotate-x': new THREE.Vector3(1, 0, 0),
-      'rotate-y': new THREE.Vector3(0, 1, 0),
-      'rotate-z': new THREE.Vector3(0, 0, 1),
-      'translate-x': new THREE.Vector3(1, 0, 0),
-      'translate-y': new THREE.Vector3(0, 1, 0),
-      'translate-z': new THREE.Vector3(0, 0, 1),
+    // Determine the world-space axis for this handle.
+    // Rotation rings are in local space (parent-relative), so we read the
+    // current world-space local axis from the gizmo's rotateGroup orientation.
+    // Translation arrows remain world-aligned.
+    let axis: THREE.Vector3
+    if (handleType === 'rotate-x') {
+      axis = this.transformGizmo.getLocalAxis('x')
+    } else if (handleType === 'rotate-y') {
+      axis = this.transformGizmo.getLocalAxis('y')
+    } else if (handleType === 'rotate-z') {
+      axis = this.transformGizmo.getLocalAxis('z')
+    } else if (handleType === 'translate-x') {
+      axis = new THREE.Vector3(1, 0, 0)
+    } else if (handleType === 'translate-y') {
+      axis = new THREE.Vector3(0, 1, 0)
+    } else {
+      axis = new THREE.Vector3(0, 0, 1)
     }
-    const axis = axisMap[handleType]
 
     const mode = handleType as DragMode
 

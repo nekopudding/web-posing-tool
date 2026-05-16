@@ -50,6 +50,14 @@ export interface BoneConfig {
   gizmoRotate: boolean
 
   /**
+   * Single-axis rotation constraint for the gizmo.
+   * When set, only the ring for this axis is shown (instead of all three).
+   * The axis is expressed in the parent bone's local space.
+   * Use for anatomically constrained joints like elbows and knees.
+   */
+  rotateConstraintAxis?: 'x' | 'y' | 'z'
+
+  /**
    * Show translation arrows (X/Y/Z) on the transform gizmo when this bone is selected.
    * Arrows trigger axis-constrained IK solve, so only useful when sphereDrag is 'ik'.
    */

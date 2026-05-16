@@ -35,17 +35,17 @@
     "shoulder.R":  {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
     "upper_arm.L": {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
     "upper_arm.R": {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
-    "forearm.L":   { "sphereDrag": "ik-inner", "chain": "arm.L",       "footLock": false, "gizmoRotate": true,  "gizmoTranslate": false },
-    "forearm.R":   { "sphereDrag": "ik-inner", "chain": "arm.R",       "footLock": false, "gizmoRotate": true,  "gizmoTranslate": false },
+    "forearm.L":   { "sphereDrag": "ik-inner", "chain": "arm.L",       "footLock": false, "gizmoRotate": true,  "gizmoTranslate": false, "rotateConstraintAxis": "x" },
+    "forearm.R":   { "sphereDrag": "ik-inner", "chain": "arm.R",       "footLock": false, "gizmoRotate": true,  "gizmoTranslate": false, "rotateConstraintAxis": "x" },
     "hand.L":      { "sphereDrag": "ik",       "chain": "arm.L",       "footLock": true,  "gizmoRotate": true,  "gizmoTranslate": true  },
     "hand.R":      { "sphereDrag": "ik",       "chain": "arm.R",       "footLock": true,  "gizmoRotate": true,  "gizmoTranslate": true  },
     "upper_leg.L": {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
     "upper_leg.R": {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
-    "lower_leg.L": { "sphereDrag": "ik-inner", "chain": "leg.L",       "footLock": false, "gizmoRotate": true,  "gizmoTranslate": false },
-    "lower_leg.R": { "sphereDrag": "ik-inner", "chain": "leg.R",       "footLock": false, "gizmoRotate": true,  "gizmoTranslate": false },
+    "lower_leg.L": { "sphereDrag": "ik-inner", "chain": "leg.L",       "footLock": false, "gizmoRotate": true,  "gizmoTranslate": false, "rotateConstraintAxis": "x" },
+    "lower_leg.R": { "sphereDrag": "ik-inner", "chain": "leg.R",       "footLock": false, "gizmoRotate": true,  "gizmoTranslate": false, "rotateConstraintAxis": "x" },
     "foot.L":      { "sphereDrag": "ik",       "chain": "leg.L",       "footLock": false, "gizmoRotate": true,  "gizmoTranslate": true  },
     "foot.R":      { "sphereDrag": "ik",       "chain": "leg.R",       "footLock": false, "gizmoRotate": true,  "gizmoTranslate": true  },
-    "toe.L":       {                                                               "gizmoRotate": true,  "gizmoTranslate": false },
-    "toe.R":       {                                                               "gizmoRotate": true,  "gizmoTranslate": false }
+    "toe.L":       {                                                               "gizmoRotate": true,  "gizmoTranslate": false, "rotateConstraintAxis": "x" },
+    "toe.R":       {                                                               "gizmoRotate": true,  "gizmoTranslate": false, "rotateConstraintAxis": "x" }
   }
 }

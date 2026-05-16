@@ -4,23 +4,48 @@ A browser-based 3D pose reference tool for artists. Drag joint spheres on a huma
 
 No backend — fully client-side.
 
-![App screenshot](images/screenshot.png)
+![App preview](images/preview.gif)
+
+**[Live demo](https://nekopudding.github.io/web-posing-tool/)**
 
 ---
 
 ## Features
 
+### Posing & IK
+
 - **Full-body IK** — drag hands, feet, head, or chest; the skeleton solves automatically using FABRIK
 - **Inner-bone IK** — drag elbows or knees to reshape a limb without moving the end effector
 - **Cascading IK** — when a hand is dragged beyond arm reach, the spine bends and feet stay pinned
 - **Pelvis FK** — drag the hips sphere to translate the entire character in world space
-- **Inverted-hull outline** — clean stylized outlines with adjustable thickness, no post-processing
-- **Transform gizmo** — click any joint to get rotation rings and/or translation arrows depending on the bone
-- **Undo / redo** — 50-step history, Ctrl+Z / Ctrl+Y (or Cmd+Z / Cmd+Y on Mac)
-- **Multiple characters** — add characters to the scene via the roster panel
-- **Body type morphs** — Lean/Muscular/Defined/Femme sliders (morph targets, Phase 4)
-- **Layer visibility** — toggle Skin, Muscle, and Bone layers independently
-- **Camera presets** — Perspective, Front, Side, Top; adjustable FOV and lens presets
+- **Joint constraints** — toggleable hinge angle limits on elbows and knees to prevent hyperextension
+
+### Transform Gizmo
+
+- Click any joint to get rotation rings and/or translation arrows depending on the bone
+- Rings are aligned to the parent bone's local axes and update every frame as the pose changes
+- Single-axis constraint mode for bones that rotate on one plane (elbows, knees)
+
+### Character Management
+
+- **Multiple characters** — add up to 6 characters; each has an independent pose and world position
+- **Pose Library** — save named scene snapshots, load or overwrite them, delete with confirmation; persisted in localStorage
+- **Undo / redo** — 50-step history, Ctrl+Z / Ctrl+Y (Cmd on Mac)
+
+### Rendering
+
+- Mixamo Y Bot GLB model with real mesh and skeleton
+- Inverted-hull outline with adjustable thickness; no post-processing
+- Adjustable background color (white, light grey, dark, black)
+- Layer visibility — toggle Skin, Muscle, and Bone layers independently
+
+### Camera
+
+- Perspective, Front, Side, Top orthographic presets
+- Adjustable FOV (10–120°) and lens presets (24 mm / 50 mm / 85 mm)
+
+### Export
+
 - **Export PNG** — captures the current viewport
 
 ---
@@ -33,7 +58,9 @@ No backend — fully client-side.
 | Pan | Right drag / middle drag |
 | Zoom | Scroll wheel |
 | Select joint | Click any sphere |
-| IK drag | Drag hand / foot sphere |
+| IK drag | Drag hand / foot / head sphere |
+| Rotate bone (gizmo) | Drag a color ring after selecting a joint |
+| Translate bone (gizmo) | Drag a color arrow after selecting a joint |
 | Undo | Ctrl+Z / Cmd+Z |
 | Redo | Ctrl+Y / Cmd+Y / Ctrl+Shift+Z |
 
@@ -103,6 +130,7 @@ src/
 │   ├── ViewportCanvas.tsx    ← Canvas mount + Three.js lifecycle + Zustand subscriptions
 │   └── panels/
 │       ├── CharacterRoster.tsx
+│       ├── PoseLibraryPanel.tsx
 │       ├── BodyTypePanel.tsx
 │       ├── LayerPanel.tsx
 │       ├── CameraPanel.tsx
@@ -124,18 +152,3 @@ pnpm dev        # dev server at http://localhost:5173
 pnpm build      # production build to dist/
 pnpm preview    # preview the production build
 ```
-
----
-
-## Phase Status
-
-- [x] Phase 1 — Scaffold + placeholder rig (box skeleton, orbitable)
-- [x] Phase 2 — FABRIK IK + inverted hull outline + gizmo drag
-- [x] Phase 3 — All UI panels + Zustand store wired
-- [x] Phase 3.5 — Full-body IK, inner-bone IK, pelvis FK, undo/redo, JSON rig config
-- [ ] Blender — bone rename, shape keys, layer meshes, GLB export → `public/models/humanoid.glb`
-- [ ] Phase 4 — GLTF loaded, `CharacterManager.loadGLTF()`, morph targets
-- [ ] Phase 5 — Export pose JSON, mirror pose, pose save/load, character rename
-
-NEXT 
-- add lightsource and ambient light - user can adjust angle from the model by rotating it around the model, distance

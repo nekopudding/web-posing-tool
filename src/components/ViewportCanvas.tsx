@@ -139,7 +139,7 @@ export function ViewportCanvas() {
      * Falls back gracefully to the placeholder rig if loading fails.
      */
     const loadModelForCharacter = (mgr: CharacterManager) => {
-      mgr.loadGLTF('/models/Y Bot.glb').then(() => {
+      mgr.loadGLTF(`${import.meta.env.BASE_URL}models/Y Bot.glb`).then(() => {
         // Re-apply the store pose after the GLB finishes loading.
         // If setBulkPose was called before the skeleton was ready (e.g. when loading
         // a saved scene that added new characters), applyPoseState was a no-op because
